@@ -41,6 +41,7 @@ App ─▶ CloudWatch Logs（保持期間 = 1 か月）
 
 - CloudWatch Logs の保持期間は 1 か月にし、S3 側に必要な保存期間分を置く。
 - S3 では、ライフサイクルルールで **S3 Glacier Instant Retrieval（Glacier IR）** に移す。Glacier IR はミリ秒で取り出せるので、Athena で直接検索できる。取り出しに数時間かかってよいなら、より安い Glacier Deep Archive も選べる。
+中間に Glacier Flexible Retrieval もあるが、Glacier IR より 1 割ほど安いだけで、取り出しに数分から 12 時間かかる。
 - S3 への出し方は二つある。
 
 | 観点 | B1: export タスク | B2: Firehose |
@@ -84,6 +85,7 @@ S3 オブジェクトロックのコンプライアンスモードを使えば�
 | CloudWatch Logs の保存 | 0.03 USD/GB・月（圧縮後） |
 | S3 Standard | 0.023 USD/GB・月 |
 | S3 Glacier IR | 0.004 USD/GB・月（最低 90 日） |
+| S3 Glacier Flexible Retrieval | 0.0036 USD/GB・月（最低 90 日、取り出しに数分から 12 時間） |
 | S3 Glacier Deep Archive | 0.00099 USD/GB・月（最低 180 日、取り出しに数時間） |
 | Firehose の取り込み | 0.029 USD/GB（5 KB 単位で切り上げ） |
 
