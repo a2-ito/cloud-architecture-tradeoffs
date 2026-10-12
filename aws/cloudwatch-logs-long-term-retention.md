@@ -29,6 +29,11 @@ App ─▶ CloudWatch Logs（保持期間 = 必要な保存期間）
 
 - ロググループの保持期間を、必要な保存期間（例: 5 年）に設定するだけで済む。
 - 古いログも Logs Insights でそのまま検索できる。
+- CloudWatch Logs の **S3 Tables 連携** を有効にすると、同じログを Apache Iceberg 形式のテーブルとして Athena や Redshift から SQL で検索できる。追加料金はない[^s3tables]。
+
+S3 Tables 連携は S3 にデータを置くが、B のようなアーカイブには使えない。
+S3 テーブルのデータはロググループの保持期間に従って削除され、保存料金も CloudWatch Logs の料金のままだからである。
+A の検索手段を増やす機能として扱う。
 
 ### B. CloudWatch Logs に短期間置き、S3 にアーカイブする
 
@@ -40,8 +45,7 @@ App ─▶ CloudWatch Logs（保持期間 = 1 か月）
 ```
 
 - CloudWatch Logs の保持期間は 1 か月にし、S3 側に必要な保存期間分を置く。
-- S3 では、ライフサイクルルールで **S3 Glacier Instant Retrieval（Glacier IR）** に移す。Glacier IR はミリ秒で取り出せるので、Athena で直接検索できる。取り出しに数時間かかってよいなら、より安い Glacier Deep Archive も選べる。
-中間に Glacier Flexible Retrieval もあるが、Glacier IR より 1 割ほど安いだけで、取り出しに数分から 12 時間かかる。
+- S3 では、ライフサイクルルールで **S3 Glacier Instant Retrieval（Glacier IR）** に移す。Glacier IR はミリ秒で取り出せるので、Athena で直接検索できる。取り出しに数時間かかってよいなら、より安い Glacier Deep Archive も選べる。中間に Glacier Flexible Retrieval もあるが、Glacier IR より 1 割ほど安いだけで、取り出しに数分から 12 時間かかる。
 - S3 への出し方は二つある。
 
 | 観点 | B1: export タスク | B2: Firehose |
@@ -56,6 +60,26 @@ App ─▶ CloudWatch Logs（保持期間 = 1 か月）
 B1 は安いが、定期実行の仕組みと失敗時の再実行を自前で持つ必要がある。
 1 回の export タスクは 24 時間でタイムアウトするので、ログの量が多いロググループでは期間を細かく分けて実行することになる。
 B2 は費用がかかる代わりに、仕組みを AWS に任せられる。
+
+#### B1 の定期実行の組み方
+
+export タスクは、実行中のものが **アカウントとリージョンごとに 1 つまで** という制約がある。
+このクォータは引き上げられない[^quota]。
+複数のロググループを書き出すには、一つの完了を待ってから次を開始する必要がある。
+
+ロググループが数個なら、EventBridge Scheduler から Lambda を日次で起動し、前日分の期間を指定して `CreateExportTask` を呼ぶ構成で足りる。
+ロググループが多い場合は、完了待ちが Lambda の最大実行時間（15 分）を超えうるので、Step Functions で順番に実行する。
+
+```
+EventBridge Scheduler（日次）─▶ Step Functions
+                                  ├─ Map（ロググループごと、同時実行数 1）
+                                  │    ├─ CreateExportTask
+                                  │    └─ DescribeExportTasks で完了するまで Wait とループ
+                                  └─ 失敗時に通知
+```
+
+Step Functions は AWS の API を直接呼べるので、Lambda を書かずに組める。
+再実行と失敗の通知も Step Functions にまとめられる。
 
 ## 3. トレードオフ
 
@@ -161,12 +185,19 @@ A と B の費用が等しくなる T は、`(0.006 + p) / 0.0052` か月であ�
 月に 100 GB（圧縮前）のログを取り込む場合の、保存期間ごとの月額である。
 保存期間分のログがたまりきった後の定常状態の値で、取り込み料金 50 USD を含む。
 
-| 保存期間 | A | B1 | B2（圧縮前に課金） | A に対する B1 の削減率 |
-| --- | --- | --- | --- | --- |
-| 1 年 | 57.2 USD | 51.6 USD | 54.5 USD | 10 % |
-| 3 年 | 71.6 USD | 53.5 USD | 56.4 USD | 25 % |
-| 5 年 | 86.0 USD | 55.4 USD | 58.3 USD | 36 % |
-| 7 年 | 100.4 USD | 57.3 USD | 60.2 USD | 43 % |
+B2 の料金は、Firehose が圧縮後と圧縮前のどちらのサイズに課金するかで変わる[^firehose]。
+どちらになるかを確認できていないため、両方の値を並べる。
+実際の B2 の月額は、この 2 列のあいだに入る。
+
+| 保存期間 | A | B1 | B2（圧縮後に課金） | B2（圧縮前に課金） | A に対する B1 の削減率 |
+| --- | --- | --- | --- | --- | --- |
+| 1 年 | 57.2 USD | 51.6 USD | 52.1 USD | 54.5 USD | 10 % |
+| 3 年 | 71.6 USD | 53.5 USD | 54.1 USD | 56.4 USD | 25 % |
+| 5 年 | 86.0 USD | 55.4 USD | 56.0 USD | 58.3 USD | 36 % |
+| 7 年 | 100.4 USD | 57.3 USD | 57.9 USD | 60.2 USD | 43 % |
+
+B2 が圧縮後に課金される場合、B1 との差は月 0.6 USD しかない。
+その場合は、定期実行の仕組みを持たずに済む B2 を選ぶ理由が強くなる。
 
 保存期間が 1 年なら、差は合計額の 5〜10 % にとどまる。
 この程度の差であれば、アーカイブの仕組みを持たずに済む A を選ぶ理由は十分にある。
@@ -183,4 +214,6 @@ IA ログクラスでは取り込み料金が半分になり、保存料金は�
 
 [^price]: 単価はリージョンと利用量の段階によって変わる。最新の値は [Amazon CloudWatch の料金](https://aws.amazon.com/cloudwatch/pricing/)、[Amazon S3 の料金](https://aws.amazon.com/s3/pricing/)、[Amazon Data Firehose の料金](https://aws.amazon.com/firehose/pricing/) を参照。
 [^export]: [Exporting log data to Amazon S3](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/S3Export.html) に「継続的なアーカイブのために定期的に S3 へ export することは推奨しない。その用途にはサブスクリプションを使うことを推奨する」とある。
+[^s3tables]: [Access logs with S3 Tables Integration](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/s3-tables-integration.html) を参照。連携を作成した後に届いたログだけが対象で、既存のログはさかのぼって入らない。
+[^quota]: [CloudWatch Logs quotas](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/cloudwatch_limits_cwl.html) の「Active export task」を参照。
 [^firehose]: サブスクリプションフィルターは、ログを gzip で圧縮した状態で Firehose に送る。Firehose は受け取ったレコードのサイズに 5 KB 単位で課金するため、実際の料金は両者のあいだに収まると考えられる。
