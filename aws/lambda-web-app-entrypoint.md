@@ -111,8 +111,41 @@ C は API Gateway の料金がかからない点では B と同じだが、Lambd
 - C は、リクエスト数、CPU を実際に使った時間、実行環境が存在するあいだのメモリで課金される。I/O 待ちのあいだの CPU 時間は課金されず、一つの実行環境の費用を同時に処理しているリクエストで分け合う。
 
 そのため、C が安くなるのは、データベースや生成 AI の応答を待つ時間が長い I/O 中心の処理である。
-CPU を使い続ける処理では、待ち時間がないので課金の差は小さい。
+CPU を使い続ける処理では、C のほうがやや割高になる。
+B で 1 vCPU 相当（1,769 MB）を 1 秒使う費用は約 0.0000230 USD で、C の vCPU 1 秒の 0.0000277 USD より安いからである。
 メモリは実行環境が存在するあいだ課金されるので、リクエストがまばらで実行環境が残り続ける使い方では、この分が割高になりうる。
+
+次の単価で、B と C の 100 万リクエストあたりの費用を試算する。
+単価は us-east-2 の執筆時点のもので、B は C と同じ Arm64 の単価を使う。
+
+| 項目 | B: 関数 URL（Event Functions、Arm64） | C: Web Functions |
+| --- | --- | --- |
+| リクエスト | 0.20 USD / 100 万 | 0.30 USD / 100 万 |
+| 計算 | 0.0000133334 USD / GB-秒（割り当てメモリ × 経過時間） | 0.0000276944 USD / vCPU-秒（CPU を使った時間） |
+| メモリ | 計算に含まれる | 0.0000036667 USD / GB-秒（実行環境が存在する時間） |
+| 無料枠 | 毎月 100 万リクエストと 40 万 GB-秒 | 料金ページに記載なし |
+
+試算の前提は次のとおりとする。
+
+- メモリは B で 512 MB を割り当て、C でも 512 MB を使うとする。
+- C の一つの実行環境は、平均 10 リクエストを同時に処理しているとする。
+- 処理時間は B と C で同じとする。
+
+| 処理の例 | CPU 時間 | 処理時間（待ち時間を含む） | B | C |
+| --- | --- | --- | --- | --- |
+| 待ち時間の少ない軽い API | 20 ミリ秒 | 50 ミリ秒 | 約 0.53 USD | 約 0.86 USD |
+| データベースを待つ API | 20 ミリ秒 | 200 ミリ秒 | 約 1.53 USD | 約 0.89 USD |
+| 生成 AI の応答を待つ API | 50 ミリ秒 | 10 秒 | 約 66.87 USD | 約 3.52 USD |
+
+この前提では、処理時間が CPU 時間のおよそ 4 倍を超えると C のほうが安くなる。
+B の割り当てメモリが 1 GB なら、この境目はおよそ 2 倍に下がる。
+B は待ち時間にもメモリ量 × 経過時間で課金されるので、割り当てメモリが大きいほど C との差が開く。
+
+リクエストがまばらな場合は、この試算どおりにならない。
+
+- B は無料枠に収まれば費用がかからない。月数十万リクエスト程度の小さなアプリケーションは、ほぼ無料で動く。
+- C は、リクエストがないあいだに実行環境がどのくらい残るかがドキュメントで確認できていない。仮に 512 MB を使う実行環境が一つ、1 か月ずっと残ると、メモリだけで約 4.75 USD かかる。
+- C の単価表の「メモリ」は、割り当てた量ではなく、実際に使った量に課金するように読める。ただし、使った量をどう測るかはドキュメントで確認できていない。
 
 ### 運用負荷
 
@@ -181,7 +214,8 @@ C が B より有利になるのは、B の制約にぶつかる場面である�
 逆に、次の場合は B のままにする。
 
 - Node.js 以外のランタイムで書いている。
-- 2 GB を超えるメモリや、CPU を使い続ける処理が要る。CPU を使い続ける処理では、C の課金の利点もほとんどない。
+- 2 GB を超えるメモリや、CPU を使い続ける処理が要る。CPU を使い続ける処理では、C のほうがやや割高になる。
+- アクセスが少なく、B の無料枠に収まる。待ち時間の少ない軽い API も、試算では B のほうが安い。
 - CloudFront のオリジン側で Lambda@Edge を使っている。
 - 使っている IaC ツールや監視ツールが、まだ Web Functions に対応していない。
 
@@ -193,4 +227,4 @@ C が B より有利になるのは、B の制約にぶつかる場面である�
 [^oac-web]: Web Functions の OAC は関数 URL と設定が異なる。手順は [Restrict access to an AWS Lambda Web Function origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html) を参照。
 [^edge-sign]: 構成例は [Protecting an AWS Lambda function URL with Amazon CloudFront and Lambda@Edge](https://aws.amazon.com/blogs/compute/protecting-an-aws-lambda-function-url-with-amazon-cloudfront-and-lambdaedge/) を参照。ボディの切り詰めは [Restrictions on Lambda@Edge](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-at-edge-function-restrictions.html) を参照。
 [^price]: 単価はリージョンと利用量の段階によって変わる。最新の値は [Amazon API Gateway の料金](https://aws.amazon.com/api-gateway/pricing/) を参照。
-[^price-web]: 単価は [AWS Lambda の料金](https://aws.amazon.com/lambda/pricing/) の Web Functions のタブを参照。
+[^price-web]: 単価はリージョンによって変わる。最新の値は [AWS Lambda の料金](https://aws.amazon.com/lambda/pricing/) の Event Functions と Web Functions のタブを参照。
