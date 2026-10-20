@@ -118,7 +118,10 @@ CPU を使い続ける処理では、待ち時間がないので課金の差は�
 
 - A は API Gateway のリソース（ステージ、デプロイ、ルート、オーソライザー）を IaC で管理する必要がある。ルートを追加するたびに API Gateway 側の定義も変える構成だと、アプリケーションと API 定義の二か所を同期させ続けることになる。
 - A では API Gateway のアクセスログとメトリクス（4xx / 5xx、レイテンシ、統合レイテンシ）が手に入る。B では Lambda の関数 URL 用メトリクス（`UrlRequestCount`、`Url4xxCount`、`Url5xxCount` など）と CloudFront のログで代替する。
-- B で OAC を使う場合、`PUT` と `POST` のリクエストでは、クライアントがボディの SHA256 を計算して `x-amz-content-sha256` ヘッダーに入れる必要がある。Lambda は署名なしのペイロードを受け付けないためである。ブラウザのフォーム送信や、ヘッダーを制御できない外部サービスからの Webhook では、この制約がそのまま障害になる。回避するには、クライアント側でハッシュを付ける実装を入れるか、OAC を外して秘密ヘッダーによる検証に切り替える（その場合、関数 URL は認証タイプ `NONE` で公開されることになる）。
+- B で OAC を使う場合、`PUT` と `POST` のリクエストでは、クライアントがボディの SHA256 を計算して `x-amz-content-sha256` ヘッダーに入れる必要がある。Lambda は署名なしのペイロードを受け付けないためである。ブラウザのフォーム送信や、ヘッダーを制御できない外部サービスからの Webhook では、この制約がそのまま障害になる。回避するには、次の三つのどれかを選ぶ。
+  - クライアント側でハッシュを付ける実装を入れる。
+  - OAC を外し、オリジンリクエストで動く Lambda@Edge にボディを含めて SigV4 署名させる[^edge-sign]。クライアントは何も付けなくてよいが、Lambda@Edge に渡るボディは 1 MB で切り詰められるので、それより大きいボディは署名が合わずに失敗する。書き込みのたびに Lambda@Edge の料金と実行時間が加わり、us-east-1 に置く Lambda@Edge をアプリケーションとは別に管理することになる。また、署名が `Authorization` ヘッダーを上書きするので、アプリケーションはこのヘッダーで認証できない。
+  - OAC を外して秘密ヘッダーによる検証に切り替える（その場合、関数 URL は認証タイプ `NONE` で公開されることになる）。
 - B ではレート制限を API Gateway に任せられないので、CloudFront の WAF レートベースルールと予約同時実行数で守ることになる。予約同時実行数は関数全体の上限であり、特定のクライアントだけを絞ることはできない。
 - C の OAC では、`PUT`、`POST`、`PATCH` のリクエストを CloudFront がボディを署名に含めずに署名する。B のような `x-amz-content-sha256` の制約がなく、ブラウザのフォーム送信や外部サービスの Webhook も CloudFront 経由で受けられる。
 - C でも、アプリが閲覧者の `Authorization` ヘッダーを使う場合は、そのヘッダーを CloudFront のキャッシュポリシーに含める必要がある。含めないと、`GET` と `HEAD` では CloudFront がヘッダーを取り除いてオリジンに送る。
@@ -169,7 +172,7 @@ B と C は、どちらも API Gateway を置かずにアプリケーション�
 そのため、API Gateway を外すと決めたあとに、B と C のどちらにするかを決めることになる。
 C が B より有利になるのは、B の制約にぶつかる場面である。
 
-- **書き込み系のリクエストを、署名ヘッダーを付けられないクライアントから受けるとき。** B の OAC では、`PUT` と `POST` のたびにクライアントが `x-amz-content-sha256` を付ける必要がある。ブラウザのフォーム送信や外部サービスの Webhook では付けられないので、B では OAC をあきらめて関数 URL を公開するか、クライアントを作り込むかになる。C では CloudFront がボディを署名に含めずに署名するので、この制約がない。
+- **書き込み系のリクエストを、署名ヘッダーを付けられないクライアントから受けるとき。** B の OAC では、`PUT` と `POST` のたびにクライアントが `x-amz-content-sha256` を付ける必要がある。ブラウザのフォーム送信や外部サービスの Webhook では付けられない。B でも、OAC の代わりに Lambda@Edge で署名すれば CloudFront 側で署名できるが、ボディが 1 MB までになり、Lambda@Edge という部品と、リクエストごとの費用と実行時間が加わる。C では CloudFront の OAC がボディを署名に含めずに署名するので、追加の部品なしにこの制約がなくなる。
 - **アプリケーションが `Authorization` ヘッダーのトークン（JWT など）で認証しているとき。** B の OAC では `Authorization` ヘッダーが CloudFront の署名に使われるので、閲覧者のトークンはアプリケーションまで届かない。トークンを Cookie や別のヘッダーに移す必要がある。C の OAC は署名を別のヘッダーに入れ、閲覧者の `Authorization` ヘッダーをそのまま渡す。この署名の動作は Web Functions のオリジンでしか使えない[^oac-web]。
 - **I/O 待ちの長いリクエストが多いとき。** たとえば、1 リクエストで生成 AI の応答を 10 秒待ち、そのあいだ CPU をほとんど使わない処理を考える。B では一つの実行環境がそのリクエスト専用になり、10 秒 × メモリ量がそのまま課金される。同時に 100 リクエスト来れば、実行環境も 100 必要になる。C では待ち時間の CPU は課金されず、一つの実行環境が複数のリクエストを同時に処理するので、少ない実行環境で済む。
 - **アクセスが急に増えるとき。** B は同時リクエスト数と同じ数の実行環境を必要とするので、急増するとコールドスタートが重なり、アカウントの同時実行数の上限（既定 1,000）にも早く達する。C は動いている実行環境を使い回すので、新しい実行環境を作る回数が少ない。
@@ -188,5 +191,6 @@ C が B より有利になるのは、B の制約にぶつかる場面である�
 [^webfn]: [Announcing AWS Lambda Web Functions](https://aws.amazon.com/blogs/aws/announcing-aws-lambda-web-functions-for-fast-consistent-web-app-performance-anywhere/) と [Lambda クォータ](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html) の Lambda Web Functions の節を参照。本ファイルの C の記述は 2026 年 10 月時点の情報である。
 [^oac]: CloudFront の OAC と関数 URL の設定手順は [Restrict access to an AWS Lambda function URL origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html) を参照。
 [^oac-web]: Web Functions の OAC は関数 URL と設定が異なる。手順は [Restrict access to an AWS Lambda Web Function origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html) を参照。
+[^edge-sign]: 構成例は [Protecting an AWS Lambda function URL with Amazon CloudFront and Lambda@Edge](https://aws.amazon.com/blogs/compute/protecting-an-aws-lambda-function-url-with-amazon-cloudfront-and-lambdaedge/) を参照。ボディの切り詰めは [Restrictions on Lambda@Edge](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/lambda-at-edge-function-restrictions.html) を参照。
 [^price]: 単価はリージョンと利用量の段階によって変わる。最新の値は [Amazon API Gateway の料金](https://aws.amazon.com/api-gateway/pricing/) を参照。
 [^price-web]: 単価は [AWS Lambda の料金](https://aws.amazon.com/lambda/pricing/) の Web Functions のタブを参照。
