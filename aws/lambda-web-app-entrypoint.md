@@ -163,6 +163,28 @@ C を避けるのは、Node.js 以外のランタイムや 2 GB を超えるメ�
 A を選ぶ場合、REST API と HTTP API の選択は、使用量プラン、WAF の直接適用、リクエスト検証、ストリーミング、29 秒超のタイムアウトのどれかが要るかで決まる。
 どれも要らなければ HTTP API のほうが安い。
 
+### B と C のどちらにするか
+
+B と C は、どちらも API Gateway を置かずにアプリケーションがルーティングと認証を持つ構成である。
+そのため、API Gateway を外すと決めたあとに、B と C のどちらにするかを決めることになる。
+C が B より有利になるのは、B の制約にぶつかる場面である。
+
+- **書き込み系のリクエストを、署名ヘッダーを付けられないクライアントから受けるとき。** B の OAC では、`PUT` と `POST` のたびにクライアントが `x-amz-content-sha256` を付ける必要がある。ブラウザのフォーム送信や外部サービスの Webhook では付けられないので、B では OAC をあきらめて関数 URL を公開するか、クライアントを作り込むかになる。C では CloudFront がボディを署名に含めずに署名するので、この制約がない。
+- **アプリケーションが `Authorization` ヘッダーのトークン（JWT など）で認証しているとき。** B の OAC では `Authorization` ヘッダーが CloudFront の署名に使われるので、閲覧者のトークンはアプリケーションまで届かない。トークンを Cookie や別のヘッダーに移す必要がある。C の OAC は署名を別のヘッダーに入れ、閲覧者の `Authorization` ヘッダーをそのまま渡す。この署名の動作は Web Functions のオリジンでしか使えない[^oac-web]。
+- **I/O 待ちの長いリクエストが多いとき。** たとえば、1 リクエストで生成 AI の応答を 10 秒待ち、そのあいだ CPU をほとんど使わない処理を考える。B では一つの実行環境がそのリクエスト専用になり、10 秒 × メモリ量がそのまま課金される。同時に 100 リクエスト来れば、実行環境も 100 必要になる。C では待ち時間の CPU は課金されず、一つの実行環境が複数のリクエストを同時に処理するので、少ない実行環境で済む。
+- **アクセスが急に増えるとき。** B は同時リクエスト数と同じ数の実行環境を必要とするので、急増するとコールドスタートが重なり、アカウントの同時実行数の上限（既定 1,000）にも早く達する。C は動いている実行環境を使い回すので、新しい実行環境を作る回数が少ない。
+- **カナリアリリースやマルチリージョン配置を手軽にしたいとき。** B でも関数のエイリアスの重み付けでカナリアリリースはできるが、マルチリージョン配置は各リージョンでの構築と Route 53 での振り分けを自前で作ることになる。C はエンドポイントの設定だけで済む。
+
+逆に、次の場合は B のままにする。
+
+- Node.js 以外のランタイムで書いている。
+- 2 GB を超えるメモリや、CPU を使い続ける処理が要る。CPU を使い続ける処理では、C の課金の利点もほとんどない。
+- CloudFront のオリジン側で Lambda@Edge を使っている。
+- 使っている IaC ツールや監視ツールが、まだ Web Functions に対応していない。
+
+まとめると、Node.js で書かれ、I/O 待ちが長く、ブラウザや Webhook から書き込みを受ける Web アプリケーションなら C が有利である。
+それ以外では、B から C に移す理由は小さい。
+
 [^webfn]: [Announcing AWS Lambda Web Functions](https://aws.amazon.com/blogs/aws/announcing-aws-lambda-web-functions-for-fast-consistent-web-app-performance-anywhere/) と [Lambda クォータ](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html) の Lambda Web Functions の節を参照。本ファイルの C の記述は 2026 年 10 月時点の情報である。
 [^oac]: CloudFront の OAC と関数 URL の設定手順は [Restrict access to an AWS Lambda function URL origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html) を参照。
 [^oac-web]: Web Functions の OAC は関数 URL と設定が異なる。手順は [Restrict access to an AWS Lambda Web Function origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html) を参照。
