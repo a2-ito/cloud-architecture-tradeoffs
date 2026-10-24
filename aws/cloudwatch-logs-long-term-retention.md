@@ -48,14 +48,14 @@ App ─▶ CloudWatch Logs（保持期間 = 1 か月）
 - S3 では、ライフサイクルルールで **S3 Glacier Instant Retrieval（Glacier IR）** に移す。Glacier IR はミリ秒で取り出せるので、Athena で直接検索できる。取り出しに数時間かかってよいなら、より安い Glacier Deep Archive も選べる。中間に Glacier Flexible Retrieval もあるが、Glacier IR より 1 割ほど安いだけで、取り出しに数分から 12 時間かかる。
 - S3 への出し方は二つある。
 
-| 観点 | B1: export タスク | B2: Firehose |
-| --- | --- | --- |
-| 仕組み | `CreateExportTask` を定期実行して、期間を指定して書き出す | サブスクリプションフィルターでログを Firehose に流し続ける |
-| 遅延 | 書き出せるようになるまで最大 12 時間 | 数分（Firehose のバッファ時間） |
-| 費用 | 書き出し自体の料金はない（S3 の PUT 料金のみ） | Firehose の取り込み料金 0.029 USD/GB |
-| 起動の仕組み | EventBridge Scheduler と Lambda などを自前で用意する | 設定すれば常時動く |
-| IA ログクラス | 使える | 使えない（IA はサブスクリプションフィルターに非対応） |
-| AWS の推奨 | 継続的なアーカイブには推奨されていない[^export] | 推奨されている |
+| 観点          | B1: export タスク                                         | B2: Firehose                                               |
+| ------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
+| 仕組み        | `CreateExportTask` を定期実行して、期間を指定して書き出す | サブスクリプションフィルターでログを Firehose に流し続ける |
+| 遅延          | 書き出せるようになるまで最大 12 時間                      | 数分（Firehose のバッファ時間）                            |
+| 費用          | 書き出し自体の料金はない（S3 の PUT 料金のみ）            | Firehose の取り込み料金 0.029 USD/GB                       |
+| 起動の仕組み  | EventBridge Scheduler と Lambda などを自前で用意する      | 設定すれば常時動く                                         |
+| IA ログクラス | 使える                                                    | 使えない（IA はサブスクリプションフィルターに非対応）      |
+| AWS の推奨    | 継続的なアーカイブには推奨されていない[^export]           | 推奨されている                                             |
 
 B1 は安いが、定期実行の仕組みと失敗時の再実行を自前で持つ必要がある。
 1 回の export タスクは 24 時間でタイムアウトするので、ログの量が多いロググループでは期間を細かく分けて実行することになる。
@@ -85,14 +85,14 @@ Step Functions は AWS の API を直接呼べるので、Lambda を書かずに
 
 ### 機能の差
 
-| 観点 | A: CloudWatch Logs のみ | B: CloudWatch Logs + S3 |
-| --- | --- | --- |
-| 古いログの検索 | Logs Insights でそのまま検索 | Athena で検索（テーブル定義が必要） |
-| 検索の料金 | Logs Insights: 0.005 USD/GB スキャン | Athena: 5 USD/TB スキャン、Glacier IR からの取り出し料金 0.03 USD/GB |
-| 検索までの手間 | なし | Athena のテーブルとパーティションを用意する |
-| 改ざん防止 | 保持期間の設定と IAM で守る | S3 オブジェクトロックで WORM（書き込み後変更不可）にできる |
-| 他のツールからの利用 | CloudWatch Logs の API 経由 | gzip のファイルなので、任意のツールで読める |
-| メトリクスフィルター、Live Tail | 使える | 直近 1 か月分のみ（CloudWatch Logs 側） |
+| 観点                            | A: CloudWatch Logs のみ              | B: CloudWatch Logs + S3                                              |
+| ------------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| 古いログの検索                  | Logs Insights でそのまま検索         | Athena で検索（テーブル定義が必要）                                  |
+| 検索の料金                      | Logs Insights: 0.005 USD/GB スキャン | Athena: 5 USD/TB スキャン、Glacier IR からの取り出し料金 0.03 USD/GB |
+| 検索までの手間                  | なし                                 | Athena のテーブルとパーティションを用意する                          |
+| 改ざん防止                      | 保持期間の設定と IAM で守る          | S3 オブジェクトロックで WORM（書き込み後変更不可）にできる           |
+| 他のツールからの利用            | CloudWatch Logs の API 経由          | gzip のファイルなので、任意のツールで読める                          |
+| メトリクスフィルター、Live Tail | 使える                               | 直近 1 か月分のみ（CloudWatch Logs 側）                              |
 
 改ざん防止の要件がある場合、差は大きい。
 CloudWatch Logs には WORM の仕組みがなく、権限を持つ人はロググループを削除できる。
@@ -103,15 +103,15 @@ S3 オブジェクトロックのコンプライアンスモードを使えば�
 取り込み料金（Standard クラスで 0.50 USD/GB）はどちらの構成でもかかる。
 差が出るのは、保存料金と、S3 へ出す仕組みの費用だけである。
 
-| 項目 | 単価 |
-| --- | --- |
-| CloudWatch Logs の取り込み（Standard / IA） | 0.50 / 0.25 USD/GB（一度だけ） |
-| CloudWatch Logs の保存 | 0.03 USD/GB・月（圧縮後） |
-| S3 Standard | 0.023 USD/GB・月 |
-| S3 Glacier IR | 0.004 USD/GB・月（最低 90 日） |
-| S3 Glacier Flexible Retrieval | 0.0036 USD/GB・月（最低 90 日、取り出しに数分から 12 時間） |
-| S3 Glacier Deep Archive | 0.00099 USD/GB・月（最低 180 日、取り出しに数時間） |
-| Firehose の取り込み | 0.029 USD/GB（5 KB 単位で切り上げ） |
+| 項目                                        | 単価                                                        |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| CloudWatch Logs の取り込み（Standard / IA） | 0.50 / 0.25 USD/GB（一度だけ）                              |
+| CloudWatch Logs の保存                      | 0.03 USD/GB・月（圧縮後）                                   |
+| S3 Standard                                 | 0.023 USD/GB・月                                            |
+| S3 Glacier IR                               | 0.004 USD/GB・月（最低 90 日）                              |
+| S3 Glacier Flexible Retrieval               | 0.0036 USD/GB・月（最低 90 日、取り出しに数分から 12 時間） |
+| S3 Glacier Deep Archive                     | 0.00099 USD/GB・月（最低 180 日、取り出しに数時間）         |
+| Firehose の取り込み                         | 0.029 USD/GB（5 KB 単位で切り上げ）                         |
 
 保存料金だけを比べると、CloudWatch Logs は Glacier IR の 7.5 倍高い。
 ただし、取り込み料金がそれよりずっと大きいため、合計額で見ると差は小さくなる。
@@ -171,11 +171,11 @@ B では、直近 1 か月分を S3 にも置くので、保存料金を少し�
 
 A と B の費用が等しくなる T は、`(0.006 + p) / 0.0052` か月である。
 
-| S3 への出し方 | p | 保存料金で元が取れる期間 |
-| --- | --- | --- |
-| B1: export タスク | 約 0 | 約 1.2 か月 |
-| B2: Firehose（圧縮後に課金） | 約 0.0058 USD | 約 2.3 か月 |
-| B2: Firehose（圧縮前に課金） | 0.029 USD | 約 6.7 か月 |
+| S3 への出し方                | p             | 保存料金で元が取れる期間 |
+| ---------------------------- | ------------- | ------------------------ |
+| B1: export タスク            | 約 0          | 約 1.2 か月              |
+| B2: Firehose（圧縮後に課金） | 約 0.0058 USD | 約 2.3 か月              |
+| B2: Firehose（圧縮前に課金） | 0.029 USD     | 約 6.7 か月              |
 
 保存期間が 1 か月を超えた時点から、B のほうが安くなっていく。
 ただし、これは「どちらが安いか」の分岐点であり、「差が気になるほど大きいか」は別の問題である。
@@ -189,12 +189,12 @@ B2 の料金は、Firehose が圧縮後と圧縮前のどちらのサイズに�
 どちらになるかを確認できていないため、両方の値を並べる。
 実際の B2 の月額は、この 2 列のあいだに入る。
 
-| 保存期間 | A | B1 | B2（圧縮後に課金） | B2（圧縮前に課金） | A に対する B1 の削減率 |
-| --- | --- | --- | --- | --- | --- |
-| 1 年 | 57.2 USD | 51.6 USD | 52.1 USD | 54.5 USD | 10 % |
-| 3 年 | 71.6 USD | 53.5 USD | 54.1 USD | 56.4 USD | 25 % |
-| 5 年 | 86.0 USD | 55.4 USD | 56.0 USD | 58.3 USD | 36 % |
-| 7 年 | 100.4 USD | 57.3 USD | 57.9 USD | 60.2 USD | 43 % |
+| 保存期間 | A         | B1       | B2（圧縮後に課金） | B2（圧縮前に課金） | A に対する B1 の削減率 |
+| -------- | --------- | -------- | ------------------ | ------------------ | ---------------------- |
+| 1 年     | 57.2 USD  | 51.6 USD | 52.1 USD           | 54.5 USD           | 10 %                   |
+| 3 年     | 71.6 USD  | 53.5 USD | 54.1 USD           | 56.4 USD           | 25 %                   |
+| 5 年     | 86.0 USD  | 55.4 USD | 56.0 USD           | 58.3 USD           | 36 %                   |
+| 7 年     | 100.4 USD | 57.3 USD | 57.9 USD           | 60.2 USD           | 43 %                   |
 
 B2 が圧縮後に課金される場合、B1 との差は月 0.6 USD しかない。
 その場合は、定期実行の仕組みを持たずに済む B2 を選ぶ理由が強くなる。
@@ -213,7 +213,11 @@ IA ログクラスでは取り込み料金が半分になり、保存料金は�
 そのため、合計額に占める保存料金の比重が上がり、1 年保存でも B1 は A より約 18 % 安くなる。
 
 [^price]: 単価はリージョンと利用量の段階によって変わる。最新の値は [Amazon CloudWatch の料金](https://aws.amazon.com/cloudwatch/pricing/)、[Amazon S3 の料金](https://aws.amazon.com/s3/pricing/)、[Amazon Data Firehose の料金](https://aws.amazon.com/firehose/pricing/) を参照。
+
 [^export]: [Exporting log data to Amazon S3](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/S3Export.html) に「継続的なアーカイブのために定期的に S3 へ export することは推奨しない。その用途にはサブスクリプションを使うことを推奨する」とある。
+
 [^s3tables]: [Access logs with S3 Tables Integration](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/s3-tables-integration.html) を参照。連携を作成した後に届いたログだけが対象で、既存のログはさかのぼって入らない。
+
 [^quota]: [CloudWatch Logs quotas](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/cloudwatch_limits_cwl.html) の「Active export task」を参照。
+
 [^firehose]: サブスクリプションフィルターは、ログを gzip で圧縮した状態で Firehose に送る。Firehose は受け取ったレコードのサイズに 5 KB 単位で課金するため、実際の料金は両者のあいだに収まると考えられる。

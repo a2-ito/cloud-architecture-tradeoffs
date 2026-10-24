@@ -31,12 +31,12 @@ PR の自動マージを検討するのは、次のような場合である。
 
 GitHub のドキュメントに書かれた提供範囲[^gated]をまとめると、次のようになる。
 
-| 機能 | Free（パブリック） | Free（プライベート） | Pro / Team（プライベート） | Enterprise Cloud（プライベート） |
-| --- | --- | --- | --- | --- |
-| ブランチ保護 / ルールセット | 可 | **不可** | 可 | 可 |
-| auto-merge | 可 | **不可** | 可 | 可 |
-| merge queue | Organization 所有なら可 | 不可 | **不可** | Organization 所有なら可 |
-| Organization 単位のルールセット | 不可 | 不可 | 不可 | 可 |
+| 機能                            | Free（パブリック）      | Free（プライベート） | Pro / Team（プライベート） | Enterprise Cloud（プライベート） |
+| ------------------------------- | ----------------------- | -------------------- | -------------------------- | -------------------------------- |
+| ブランチ保護 / ルールセット     | 可                      | **不可**             | 可                         | 可                               |
+| auto-merge                      | 可                      | **不可**             | 可                         | 可                               |
+| merge queue                     | Organization 所有なら可 | 不可                 | **不可**                   | Organization 所有なら可          |
+| Organization 単位のルールセット | 不可                    | 不可                 | 不可                       | 可                               |
 
 この表から、読み落としやすい点が 3 つある。
 
@@ -137,15 +137,15 @@ PR ─▶ ワークフロー ─▶ 自分で CI の成功を待つ（gh pr chec
 
 前節の構成を、どのリポジトリで使えるかに当てはめると次のようになる。
 
-| リポジトリ | A: auto-merge | B: merge queue | C: Actions で直接 | D: Renovate | E: 外部アプリ |
-| --- | --- | --- | --- | --- | --- |
-| 個人・Free・パブリック | 可 | 不可 | 可 | 可 | 可 |
-| 個人・Free・プライベート | 不可 | 不可 | 可 | `platformAutomerge: false` で可 | 可 |
-| 個人・Pro・プライベート | 可 | 不可 | 可 | 可 | 可 |
-| Org・Free・パブリック | 可 | 可 | 可 | 可 | 可 |
-| Org・Free・プライベート | 不可 | 不可 | 可 | `platformAutomerge: false` で可 | 可 |
-| Org・Team・プライベート | 可 | 不可 | 可 | 可 | 可 |
-| Org・Enterprise Cloud・プライベート | 可 | 可 | 可 | 可 | 可 |
+| リポジトリ                          | A: auto-merge | B: merge queue | C: Actions で直接 | D: Renovate                     | E: 外部アプリ |
+| ----------------------------------- | ------------- | -------------- | ----------------- | ------------------------------- | ------------- |
+| 個人・Free・パブリック              | 可            | 不可           | 可                | 可                              | 可            |
+| 個人・Free・プライベート            | 不可          | 不可           | 可                | `platformAutomerge: false` で可 | 可            |
+| 個人・Pro・プライベート             | 可            | 不可           | 可                | 可                              | 可            |
+| Org・Free・パブリック               | 可            | 可             | 可                | 可                              | 可            |
+| Org・Free・プライベート             | 不可          | 不可           | 可                | `platformAutomerge: false` で可 | 可            |
+| Org・Team・プライベート             | 可            | 不可           | 可                | 可                              | 可            |
+| Org・Enterprise Cloud・プライベート | 可            | 可             | 可                | 可                              | 可            |
 
 パブリックリポジトリには、プライベートにはない注意点がある。
 
@@ -156,11 +156,11 @@ PR ─▶ ワークフロー ─▶ 自分で CI の成功を待つ（gh pr chec
 
 ### 安全性
 
-| 観点 | A | B | C | D（platformAutomerge: false） | E |
-| --- | --- | --- | --- | --- | --- |
-| マージ条件を GitHub が強制する | する | する | しない | しない | 構成次第 |
-| 手動のマージを止められる | 止められる | 止められる | 止められない | 止められない | 構成次第 |
-| マージ後の main で壊れる可能性 | あり | なし | あり | あり | キューを使えばなし |
+| 観点                           | A          | B          | C            | D（platformAutomerge: false） | E                  |
+| ------------------------------ | ---------- | ---------- | ------------ | ----------------------------- | ------------------ |
+| マージ条件を GitHub が強制する | する       | する       | しない       | しない                        | 構成次第           |
+| 手動のマージを止められる       | 止められる | 止められる | 止められない | 止められない                  | 構成次第           |
+| マージ後の main で壊れる可能性 | あり       | なし       | あり         | あり                          | キューを使えばなし |
 
 A と B は、条件を満たさない PR を誰もマージできない。
 C と D（platformAutomerge: false）は、ワークフローや Renovate が「確認してからマージする」だけで、確認を通らないマージを止める仕組みはない。
@@ -174,12 +174,12 @@ C と D（platformAutomerge: false）は、ワークフローや Renovate が「
 
 ### コスト
 
-| 構成 | 追加の費用 |
-| --- | --- |
-| A | プライベートなら Pro（個人、4 USD/月）か Team（4 USD/ユーザー/月） |
-| B | プライベートなら Enterprise Cloud（21 USD/ユーザー/月）。キューで CI をもう一度回すため、Actions の実行分数も増える |
-| C、D | なし（Actions の実行分数のみ） |
-| E | サービスの料金（プライベートでは有料のことが多い） |
+| 構成 | 追加の費用                                                                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------- |
+| A    | プライベートなら Pro（個人、4 USD/月）か Team（4 USD/ユーザー/月）                                                  |
+| B    | プライベートなら Enterprise Cloud（21 USD/ユーザー/月）。キューで CI をもう一度回すため、Actions の実行分数も増える |
+| C、D | なし（Actions の実行分数のみ）                                                                                      |
+| E    | サービスの料金（プライベートでは有料のことが多い）                                                                  |
 
 プライベートで B を使うために Team から Enterprise Cloud に上げると、ユーザーあたりの費用は約 5 倍になる。
 merge queue のためだけに上げるのは割に合わないことが多く、E の外部アプリのほうが安く済む場合がある。
@@ -226,6 +226,9 @@ E（外部アプリ）が向くのは次のような場合である。
 - 第三者の App に書き込み権限を渡すことを社内で許容できる。
 
 [^pricing]: 料金は変わることがある。最新の値は [GitHub の料金](https://github.com/pricing) を参照。
+
 [^gated]: [Managing auto-merge for pull requests in your repository](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-auto-merge-for-pull-requests-in-your-repository)、[Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)、[About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)、[About rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) の提供範囲の記載を参照。
+
 [^dependabot]: [Automating Dependabot with GitHub Actions](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/automating-dependabot-with-github-actions) を参照。
+
 [^renovate]: [Renovate の Automerge configuration and troubleshooting](https://docs.renovatebot.com/key-concepts/automerge/) を参照。

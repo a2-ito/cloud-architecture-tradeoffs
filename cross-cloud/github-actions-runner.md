@@ -45,15 +45,15 @@ GitHub ─(workflow_job Webhook)─▶ CodeBuild ─▶ ジョブごとにビル
 - オートスケーラーやランナーの登録処理を自前で持つ必要がない。セルフホストの中では運用が最も軽い。
 - コンピュートは EC2 と Lambda から選べる。両者は別物と考えたほうがよい。
 
-| 観点 | B-EC2 | B-Lambda |
-| --- | --- | --- |
-| Docker | 使える（特権モードを有効にする） | 使えない |
-| root 権限 | あり | なし（`yum` などは使えない） |
-| 書き込める場所 | 制限なし | `/tmp` のみ |
-| ジョブの最大時間 | ビルドのタイムアウト（最大 36 時間） | 15 分 |
-| VPC 接続 | 可 | 不可 |
-| 起動 | 数十秒〜（リザーブドキャパシティなら短縮できる） | 速い |
-| 課金単位 | 分単位で切り上げ（起動待ちの時間も含む） | 秒単位で切り上げ |
+| 観点             | B-EC2                                            | B-Lambda                     |
+| ---------------- | ------------------------------------------------ | ---------------------------- |
+| Docker           | 使える（特権モードを有効にする）                 | 使えない                     |
+| root 権限        | あり                                             | なし（`yum` などは使えない） |
+| 書き込める場所   | 制限なし                                         | `/tmp` のみ                  |
+| ジョブの最大時間 | ビルドのタイムアウト（最大 36 時間）             | 15 分                        |
+| VPC 接続         | 可                                               | 不可                         |
+| 起動             | 数十秒〜（リザーブドキャパシティなら短縮できる） | 速い                         |
+| 課金単位         | 分単位で切り上げ（起動待ちの時間も含む）         | 秒単位で切り上げ             |
 
 B-Lambda はテストやリント、静的サイトのビルドのように、Docker を使わず 15 分以内に終わるジョブに限れば非常に安い[^lambda]。
 
@@ -104,15 +104,15 @@ GitHub ◀─(ロングポーリング)─ ARC のリスナー ─▶ ランナ�
 
 ### 機能の差
 
-| 観点 | A: GitHub-hosted | B-EC2: CodeBuild | B-Lambda: CodeBuild | C: Cloud Run | D: EC2 自前 | E: ARC |
-| --- | --- | --- | --- | --- | --- | --- |
-| Docker | 可 | 可 | 不可 | 不可 | 可 | 可（特権 Pod など） |
-| ジョブの最大時間 | 6 時間 | 36 時間 | 15 分 | 5 日（GitHub の上限） | 5 日 | 5 日 |
-| VPC 内への到達 | Azure VNet のみ | 可 | 不可 | 可 | 可 | 可 |
-| クラウドの権限 | OIDC で取得 | IAM ロール | IAM ロール | サービスアカウント | IAM ロール | IRSA / Workload Identity |
-| ジョブごとの使い捨て | 常に | 常に | 常に | 構成次第（チュートリアルは使い捨て） | 設定次第（既定は無効） | 既定で有効 |
-| ツールの初期状態 | 豊富 | CodeBuild のイメージ | 限定的 | 自前のイメージ | 自前の AMI | 自前のイメージ |
-| スケーリングの仕組み | 不要 | 不要 | 不要 | オートスケーラーを自前で運用 | OSS か製品を運用 | ARC を運用 |
+| 観点                 | A: GitHub-hosted | B-EC2: CodeBuild     | B-Lambda: CodeBuild | C: Cloud Run                         | D: EC2 自前            | E: ARC                   |
+| -------------------- | ---------------- | -------------------- | ------------------- | ------------------------------------ | ---------------------- | ------------------------ |
+| Docker               | 可               | 可                   | 不可                | 不可                                 | 可                     | 可（特権 Pod など）      |
+| ジョブの最大時間     | 6 時間           | 36 時間              | 15 分               | 5 日（GitHub の上限）                | 5 日                   | 5 日                     |
+| VPC 内への到達       | Azure VNet のみ  | 可                   | 不可                | 可                                   | 可                     | 可                       |
+| クラウドの権限       | OIDC で取得      | IAM ロール           | IAM ロール          | サービスアカウント                   | IAM ロール             | IRSA / Workload Identity |
+| ジョブごとの使い捨て | 常に             | 常に                 | 常に                | 構成次第（チュートリアルは使い捨て） | 設定次第（既定は無効） | 既定で有効               |
+| ツールの初期状態     | 豊富             | CodeBuild のイメージ | 限定的              | 自前のイメージ                       | 自前の AMI             | 自前のイメージ           |
+| スケーリングの仕組み | 不要             | 不要                 | 不要                | オートスケーラーを自前で運用         | OSS か製品を運用       | ARC を運用               |
 
 ジョブごとの使い捨ては、セキュリティ上の差になる。
 ランナーを使い回すと、前のジョブが残したファイルやプロセスが次のジョブに影響しうる。
@@ -126,15 +126,15 @@ GitHub-hosted のイメージには多くのツールが入っているため、
 
 2 vCPU クラスの Linux ジョブの 1 分あたりの単価を比べる。
 
-| 構成 | 1 分あたりの単価 | 備考 |
-| --- | --- | --- |
-| A: GitHub-hosted（x64） | 0.006 USD | Arm は 0.005 USD。プランに含まれる無料分数あり |
-| B-EC2: CodeBuild general1.small（x64、3 GB） | 0.005 USD | Arm（arm1.small）は 0.0034 USD |
-| B-Lambda: CodeBuild Lambda（Arm、1 GB） | 0.0006 USD | 0.00001 USD/秒。メモリ 1 GB |
-| C: Cloud Run worker pool（2 vCPU、4 GiB） | 約 0.0016 USD | オートスケーラーの固定費が別にかかる |
-| D: EC2 m7i.large（2 vCPU、8 GB）オンデマンド | 約 0.0017 USD | スポットなら 3 分の 1 程度まで下がる |
-| E: ARC | D と同程度 | クラスタの固定費（EKS なら 73 USD/月）が別にかかる |
-| F: 外部サービス | 0.004 USD 前後 | サービスによる |
+| 構成                                         | 1 分あたりの単価 | 備考                                               |
+| -------------------------------------------- | ---------------- | -------------------------------------------------- |
+| A: GitHub-hosted（x64）                      | 0.006 USD        | Arm は 0.005 USD。プランに含まれる無料分数あり     |
+| B-EC2: CodeBuild general1.small（x64、3 GB） | 0.005 USD        | Arm（arm1.small）は 0.0034 USD                     |
+| B-Lambda: CodeBuild Lambda（Arm、1 GB）      | 0.0006 USD       | 0.00001 USD/秒。メモリ 1 GB                        |
+| C: Cloud Run worker pool（2 vCPU、4 GiB）    | 約 0.0016 USD    | オートスケーラーの固定費が別にかかる               |
+| D: EC2 m7i.large（2 vCPU、8 GB）オンデマンド | 約 0.0017 USD    | スポットなら 3 分の 1 程度まで下がる               |
+| E: ARC                                       | D と同程度       | クラスタの固定費（EKS なら 73 USD/月）が別にかかる |
+| F: 外部サービス                              | 0.004 USD 前後   | サービスによる                                     |
 
 単価だけを見ると、セルフホストは GitHub-hosted の 3 分の 1 から 10 分の 1 になる。
 ただし、セルフホストには次の費用が加わる。
@@ -214,14 +214,14 @@ M > F / (0.006 - c)
 起動のオーバーヘッドは、`c` を実際のジョブ時間に対する比率で割り増して扱う。
 運用の人件費は `F` に含めるべきだが、ここでは含めない。
 
-| 構成 | 固定費 F の例 | 単価 c | 分岐点 M |
-| --- | --- | --- | --- |
-| B-EC2（x64） | 0 | 0.005 USD | 常に B が安い（差は 1 分あたり 0.001 USD） |
-| B-EC2（Arm） | 0 | 0.0034 USD | 常に B が安い |
-| C | オートスケーラー 30 USD/月と仮定 | 0.0016 USD | 約 6,800 分/月 |
-| D（スポット、NAT あり） | NAT 33 USD/月 | 0.0006 USD | 約 6,100 分/月 |
-| D（スポット、NAT と RunsOn） | 33 USD + 約 27 USD/月 | 0.0006 USD | 約 11,000 分/月 |
-| E（EKS、スポット） | 73 USD/月 | 0.0006 USD | 約 13,500 分/月 |
+| 構成                         | 固定費 F の例                    | 単価 c     | 分岐点 M                                   |
+| ---------------------------- | -------------------------------- | ---------- | ------------------------------------------ |
+| B-EC2（x64）                 | 0                                | 0.005 USD  | 常に B が安い（差は 1 分あたり 0.001 USD） |
+| B-EC2（Arm）                 | 0                                | 0.0034 USD | 常に B が安い                              |
+| C                            | オートスケーラー 30 USD/月と仮定 | 0.0016 USD | 約 6,800 分/月                             |
+| D（スポット、NAT あり）      | NAT 33 USD/月                    | 0.0006 USD | 約 6,100 分/月                             |
+| D（スポット、NAT と RunsOn） | 33 USD + 約 27 USD/月            | 0.0006 USD | 約 11,000 分/月                            |
+| E（EKS、スポット）           | 73 USD/月                        | 0.0006 USD | 約 13,500 分/月                            |
 
 月数千分から 1 万分を超えるあたりで、C、D、E が A より安くなる。
 ただし、運用の人件費を月数時間分でも `F` に入れると、分岐点は数万分のオーダーまで上がる。
@@ -233,7 +233,11 @@ M > F / (0.006 - c)
 - C、D、E は、`0.006 - c` が 0.002 USD 縮むため、分岐点が 1.6 倍から 1.8 倍ほど後ろにずれる（C は約 12,500 分/月、E は約 21,500 分/月）。
 
 [^price]: 単価は変わることがある。最新の値は [GitHub Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)、[AWS CodeBuild の料金](https://aws.amazon.com/codebuild/pricing/)、[Cloud Run の料金](https://cloud.google.com/run/pricing)、[Amazon EC2 の料金](https://aws.amazon.com/ec2/pricing/on-demand/) を参照。
+
 [^static-ip]: [About Azure private networking for GitHub-hosted runners in your organization](https://docs.github.com/en/organizations/managing-organization-settings/about-azure-private-networking-for-github-hosted-runners-in-your-organization) を参照。
+
 [^lambda]: B-Lambda の制約は [Run builds on AWS Lambda compute](https://docs.aws.amazon.com/codebuild/latest/userguide/lambda.html) を参照。
+
 [^cloudrun]: [Host GitHub runners with Cloud Run worker pools](https://docs.cloud.google.com/run/docs/tutorials/github-runner) を参照。
+
 [^selfhosted-fee]: 2026 年 3 月 1 日から課金する予定だったが、GitHub は「アプローチを見直すため延期する」としている。新しい開始日は執筆時点で発表されていない。
