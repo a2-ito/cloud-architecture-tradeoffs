@@ -31,11 +31,11 @@ Google Cloud と Cloudflare の対応する構成は、別ファイルで扱う�
 
 ## 2. 構成
 
-![非同期処理とイベント配信の 5 構成](images/async-messaging.drawio.svg)
-
-<!-- 図は draw.io で images/async-messaging.drawio.svg を開けば編集できる -->
+<!-- 図は draw.io で images/async-messaging-*.drawio.svg を開けば編集できる -->
 
 ### A. SQS 単体
+
+![SQS 単体の構成図](images/async-messaging-a.drawio.svg)
 
 ```
 送り手 ─▶ SQS キュー ─▶ 受け手（Lambda のイベントソースマッピング、ECS など）
@@ -50,6 +50,8 @@ Google Cloud と Cloudflare の対応する構成は、別ファイルで扱う�
 - 受け手を増やしたいときは、送り手が別のキューにも送る必要がある。送り手が受け手を知っている構成である。
 
 ### B. SNS + SQS（ファンアウト）
+
+![SNS + SQS の構成図](images/async-messaging-b.drawio.svg)
 
 ```
 送り手 ─▶ SNS トピック ─┬─▶ SQS キュー A ─▶ 受け手 A
@@ -72,6 +74,8 @@ EventBridge のカスタムイベントバスには、2026 年 9 月から二つ
 
 #### C1. Custom Event Bus - Classic（ルールとターゲット）
 
+![EventBridge Custom Event Bus - Classic の構成図](images/async-messaging-c1.drawio.svg)
+
 ```
 送り手 ─▶ イベントバス ─┬─(ルール 1)─▶ SQS キュー ─▶ 受け手 A
                         ├─(ルール 2)─▶ Lambda（非同期呼び出し）
@@ -85,6 +89,8 @@ EventBridge のカスタムイベントバスには、2026 年 9 月から二つ
 - 順序の保証も、重複排除もない。
 
 #### C2. Custom Event Bus（サブスクライバー）
+
+![EventBridge Custom Event Bus（サブスクライバー）の構成図](images/async-messaging-c2.drawio.svg)
 
 ```
 送り手 ─▶ イベントバス（イベントを 1〜365 日保持）─┬─(サブスクライバー 1)─▶ SQS キュー
@@ -107,6 +113,8 @@ EventBridge のカスタムイベントバスには、2026 年 9 月から二つ
 - スキーマレジストリでイベントの形を登録し、コードのバインディングを生成できる。
 
 ### D. Kinesis Data Streams
+
+![Kinesis Data Streams の構成図](images/async-messaging-d.drawio.svg)
 
 ```
 送り手 ─▶ Kinesis データストリーム（シャード）─┬─▶ 受け手 A（Lambda のイベントソースマッピング）
