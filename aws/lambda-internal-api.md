@@ -34,10 +34,6 @@ Web Functions の仕組みと料金体系の詳細もそちらに書いたので
 
 ![PrivateLink + API Gateway の構成図](images/lambda-internal-api-a.drawio.svg)
 
-```
-VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイント（execute-api）─▶ API Gateway（Private REST API）─▶ Lambda
-```
-
 - API Gateway のエンドポイントタイプを **Private** にした REST API を作る。プライベート API は REST API でしか作れず、HTTP API では作れない。
 - 呼び出し元の VPC に `com.amazonaws.<region>.execute-api` のインターフェイス VPC エンドポイントを作る。プライベート API はこの VPC エンドポイントを通してしか呼べず、インターネットからは到達できない。
 - プライベート API にはリソースポリシーが必須で、ないとデプロイに失敗する。`aws:SourceVpce` または `aws:SourceVpc` を条件にし、呼び出してよい VPC エンドポイントや VPC を明示的に許可する[^private-api]。VPC エンドポイント側にもエンドポイントポリシーを付けられる。
@@ -49,22 +45,14 @@ VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイン
 
 ![Lambda Web Functions の構成図](images/lambda-internal-api-b.drawio.svg)
 
-```
-呼び出し元 ─(SigV4)─▶ Web Function エンドポイント（公開）─▶ Web Function（HTTP サーバー）
-```
-
 - エンドポイントの認証タイプを `IamAuth` にし、呼び出し元の IAM ロールと Web Function のリソースベースポリシーで `lambda:InvokeWebFunctionEndpoint` を許可する[^web-auth]。
 - エンドポイントは Lambda が管理する公開の HTTPS エンドポイントだけで、VPC 内のプライベートアドレスでは待ち受けない。AWS のドキュメントも、`IamAuth` は呼び出せる主体を制御するが、エンドポイントをネットワーク層でプライベートにはしないと明記している[^web-net]。Web Function エンドポイントのドメイン名には、PrivateLink のインターフェイスエンドポイントも用意されていない。
 - Web Functions の「VPC 接続」は、関数から VPC 内の RDS などへ出ていくための送信側の仕組み（egress network connector）である。これを付けても入口はプライベートにならない。また、egress network connector は `HomeRegion` エンドポイントでしか使えない。
-- VPC 内の呼び出し元から呼ぶには、NAT ゲートウェイかインターネットゲートウェイを通って公開エンドポイントに出る経路が要る。
+- VPC 内の呼び出し元から呼ぶには、NAT ゲートウェイかインターネットゲートウェイを通って公開エンドポイントに出る経路が要る。呼び出し元が VPC Lambda の場合は、ネットワークインターフェイスにパブリック IP アドレスが付かないので、インターネットゲートウェイだけでは出られず、NAT ゲートウェイが要る。
 
 ### C. Lambda 関数 URL + Lambda
 
 ![Lambda 関数 URL の構成図](images/lambda-internal-api-c.drawio.svg)
-
-```
-呼び出し元 ─(SigV4)─▶ Lambda 関数 URL（公開）─▶ Lambda
-```
 
 - 関数 URL の認証タイプを `AWS_IAM` にし、呼び出し元の IAM ロールと関数のリソースベースポリシーで `lambda:InvokeFunctionUrl` と `lambda:InvokeFunction` を許可する。
 - 関数 URL も `https://<url-id>.lambda-url.<region>.on.aws` 形式の公開エンドポイントだけで、プライベートにする設定はない。
@@ -73,10 +61,6 @@ VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイン
 ### D. 内部 ALB + Lambda
 
 ![内部 ALB + Lambda の構成図](images/lambda-internal-api-d.drawio.svg)
-
-```
-VPC 内の呼び出し元 ─▶ 内部 ALB（スキーム internal）─(リスナールール)─▶ ターゲットグループ ─▶ Lambda
-```
 
 - スキームを `internal` にした ALB を作り、Lambda 関数をターゲットグループに登録する。ALB はプライベート IP アドレスでしか待ち受けず、インターネットからは到達できない。
 - 呼び出し元の制限は、ALB のセキュリティグループで送信元（セキュリティグループや CIDR）を絞って行う。IAM による認証の仕組みはない。
@@ -120,6 +104,11 @@ VPC 接続で作られるネットワークインターフェイスは、関数�
 関数は VPC のプライベート IP アドレスで待ち受けず、関数 URL への通信は VPC 接続の有無にかかわらず公開エンドポイントに届く。
 B の egress network connector も同じで、入口には影響しない[^web-net]。
 入口をネットワークで閉じたいなら、A か D の構成か、後述の `Invoke` API を VPC エンドポイント経由で呼ぶ方法を選ぶ。
+
+なお、VPC 内のリソースに出ていく関数（VPC Lambda）は、四つのどの構成でも後ろに置ける。
+A、C、D では通常の VPC 接続を使い、B では egress network connector を使う。
+RDS など VPC 内のリソースに触る内部 API なら、関数を VPC につなぐのが普通である。
+A と D で入口が閉じているのは、関数の VPC 接続ではなく、VPC エンドポイントや内部 ALB の働きによる。
 
 B と C の違いは、[公開する場合の比較](lambda-web-app-entrypoint.md) と同じく、実行環境と課金のしかたにある。
 内部 API としての立ち位置（公開エンドポイントを IAM で守る）は、B と C で変わらない。
