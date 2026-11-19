@@ -28,11 +28,11 @@ Web Functions の仕組みと料金体系の詳細もそちらに書いたので
 
 ## 2. 構成
 
-![Lambda 内部 API の入口の 4 構成](images/lambda-internal-api.drawio.svg)
-
-<!-- 図は draw.io で images/lambda-internal-api.drawio.svg を開けば編集できる -->
+<!-- 図は draw.io で images/lambda-internal-api-*.drawio.svg を開けば編集できる -->
 
 ### A. PrivateLink + API Gateway（プライベート REST API）+ Lambda
+
+![PrivateLink + API Gateway の構成図](images/lambda-internal-api-a.drawio.svg)
 
 ```
 VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイント（execute-api）─▶ API Gateway（Private REST API）─▶ Lambda
@@ -47,6 +47,8 @@ VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイン
 
 ### B. Lambda Web Functions
 
+![Lambda Web Functions の構成図](images/lambda-internal-api-b.drawio.svg)
+
 ```
 呼び出し元 ─(SigV4)─▶ Web Function エンドポイント（公開）─▶ Web Function（HTTP サーバー）
 ```
@@ -58,6 +60,8 @@ VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイン
 
 ### C. Lambda 関数 URL + Lambda
 
+![Lambda 関数 URL の構成図](images/lambda-internal-api-c.drawio.svg)
+
 ```
 呼び出し元 ─(SigV4)─▶ Lambda 関数 URL（公開）─▶ Lambda
 ```
@@ -67,6 +71,8 @@ VPC 内の呼び出し元 ─▶ インターフェイス VPC エンドポイン
 - Lambda のインターフェイス VPC エンドポイント（`com.amazonaws.<region>.lambda`）で VPC 内から非公開で呼べるのは、`Invoke` などの Lambda API である[^lambda-vpce]。同ページが対象に挙げているのは Lambda API だけで、関数 URL のドメインは含まれていない。そのため、関数 URL を呼ぶ通信は B と同じく公開エンドポイントへ出る。
 
 ### D. 内部 ALB + Lambda
+
+![内部 ALB + Lambda の構成図](images/lambda-internal-api-d.drawio.svg)
 
 ```
 VPC 内の呼び出し元 ─▶ 内部 ALB（スキーム internal）─(リスナールール)─▶ ターゲットグループ ─▶ Lambda
