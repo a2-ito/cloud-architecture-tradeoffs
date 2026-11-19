@@ -23,11 +23,11 @@ Claude Code はふつう手元の PC のターミナルで動かすが、次の�
 
 ## 2. 構成
 
+<!-- 図は draw.io で images/claude-code-session-placement-*.drawio.svg を開けば編集できる -->
+
 ### A. 手元の PC だけで動かす
 
-```
-ターミナル ─▶ claude（手元の PC）
-```
+![手元の PC だけで動かす場合の構成図](images/claude-code-session-placement-a.drawio.svg)
 
 - ファイル、MCP サーバ、認証情報、社内 VPN など、手元の環境をすべてそのまま使える。
 - PC を閉じるか、ターミナルを終了すると止まる。
@@ -39,9 +39,7 @@ Claude Code はふつう手元の PC のターミナルで動かすが、次の�
 
 ### B. 手元の PC で動かし、Remote Control で外から操作する
 
-```
-claude（手元の PC）◀─(アウトバウンドの HTTPS)─▶ Anthropic ◀─▶ claude.ai/code / Claude アプリ（スマホ）
-```
+![手元の PC で動かし、Remote Control で外から操作する場合の構成図](images/claude-code-session-placement-b.drawio.svg)
 
 - 動いているセッションで `/remote-control`（`/rc`）を実行するか、`claude --remote-control` で起動すると、claude.ai/code やスマホの Claude アプリから同じセッションを操作できる[^rc]。
 - 実行するのはあくまで手元の PC である。会話の履歴、ファイル、MCP サーバはそのまま使え、移す作業が発生しない。
@@ -52,9 +50,7 @@ claude（手元の PC）◀─(アウトバウンドの HTTPS)─▶ Anthropic �
 
 ### C. 自前のサーバで動かし、Remote Control で外から操作する
 
-```
-SSH ─▶ EC2 など（tmux の中で claude --remote-control）◀─▶ Anthropic ◀─▶ claude.ai/code / スマホ
-```
+![自前のサーバで動かし、Remote Control で外から操作する場合の構成図](images/claude-code-session-placement-c.drawio.svg)
 
 - B の手元の PC を、常に起動している自前のサーバ（EC2、自宅のサーバなど）に置き換えた形である。
 - 公式のドキュメントは、SSH 先で動かすときは `tmux` か `screen` の中で起動するよう勧めている[^rc]。常に起動しているマシンで動かし、ほかの端末から操作する使い方は、Remote Control の用途として公式に挙げられている[^self-hosted]。
@@ -63,9 +59,7 @@ SSH ─▶ EC2 など（tmux の中で claude --remote-control）◀─▶ Anthr
 
 ### D. Anthropic のクラウドで動かす（クラウドセッション）
 
-```
-claude.ai/code / Claude アプリ / claude --cloud ─▶ Anthropic が管理する VM（GitHub から clone）
-```
+![Anthropic のクラウドで動かす場合（クラウドセッション）の構成図](images/claude-code-session-placement-d.drawio.svg)
 
 - Anthropic が管理する、セッションごとに隔離された VM で動く[^web]。始め方は次のとおりである。
   - ブラウザの claude.ai/code か、スマホの Claude アプリの Code タブから始める。
@@ -84,11 +78,7 @@ Team と Enterprise では、同じ使い勝手のまま、組織のインフラ
 
 ### E. 手元のセッションから、クラウドのサブエージェントに作業を任せる
 
-```
-claude（手元の PC）─(Agent ツール、isolation: remote)─▶ クラウドで動くサブエージェント
-        ▲                                                      │
-        └──────────────────── 結果の報告 ─────────────────────┘
-```
+![手元のセッションから、クラウドのサブエージェントに作業を任せる場合の構成図](images/claude-code-session-placement-e.drawio.svg)
 
 - 手元のセッションの Claude が、Agent ツールで `isolation: "remote"` を指定してサブエージェントを起動すると、サブエージェントがクラウドの環境で動く。プロンプトで「サーバで続きをやって」と頼むと、Claude がこの手段を選ぶことがある。
 - この機能は、執筆時点で公式のドキュメントに記載がなく、使えるかどうかはアカウントによる。以下は実際に使って観察した挙動である。
