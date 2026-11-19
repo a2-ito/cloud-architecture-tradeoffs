@@ -28,6 +28,10 @@ Web Functions の仕組みと料金体系の詳細もそちらに書いたので
 
 ## 2. 構成
 
+![Lambda 内部 API の入口の 4 構成](images/lambda-internal-api.drawio.svg)
+
+<!-- 図は draw.io で images/lambda-internal-api.drawio.svg を開けば編集できる -->
+
 ### A. PrivateLink + API Gateway（プライベート REST API）+ Lambda
 
 ```
