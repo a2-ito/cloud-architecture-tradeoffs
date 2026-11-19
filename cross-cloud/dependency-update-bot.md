@@ -23,15 +23,11 @@ GitHub に組み込まれた **Dependabot** と、OSS の **Renovate** を中心
 
 ## 2. 構成
 
+<!-- 図は draw.io で images/dependency-update-bot-*.drawio.svg を開けば編集できる -->
+
 ### A. Dependabot
 
-```
-GitHub ─▶ Dependabot（GitHub が実行）
-            │ .github/dependabot.yml の schedule に従って確認
-            ▼
-          新しい版を検出 ─▶ 公開から 3 日待つ（既定の cooldown）─▶ PR を作成（version updates）
-          脆弱性の公開を検出 ─▶ 待たずに PR を作成（security updates）
-```
+![Dependabot の構成図](images/dependency-update-bot-a.drawio.svg)
 
 - GitHub に組み込まれており、`.github/dependabot.yml` を置くだけで動く。実行環境を用意する必要はない。
 - 更新には 2 種類ある。新しい版に追従する **version updates** と、脆弱性が公開された依存だけを上げる **security updates** である。security updates は Dependabot alerts と連動し、設定ファイルがなくても有効にできる。
@@ -59,14 +55,7 @@ updates:
 
 ### B. Renovate
 
-```
-Git ホスティング ─▶ Renovate（Mend のクラウド or 自前で実行）
-                     │ renovate.json のルールに従って確認
-                     ▼
-                   新しい版を検出 ─▶ packageRules でまとめ・待ち時間・自動マージを判定 ─▶ PR を作成
-                     │
-                     └─▶ Dependency Dashboard（Issue）に依存と PR の状態を一覧
-```
+![Renovate の構成図](images/dependency-update-bot-b.drawio.svg)
 
 - OSS の更新 bot で、Mend が開発している。GitHub、GitLab、Bitbucket、Azure DevOps、Gitea などで動く。
 - 対応する manager（依存ファイルの種類ごとの解析器）は 120 を超える[^renovate-managers]。Dependabot が対応しない種類のファイルも扱えることが多い。
@@ -92,6 +81,8 @@ Community Cloud で使えないのは、この目安をもとに自動マージ�
 
 ### C. Updatecli
 
+![Updatecli の構成図](images/dependency-update-bot-c.drawio.svg)
+
 - Go 製の、宣言的な更新エンジンである[^updatecli]。「どこから最新の値を取るか（source）」「どの条件なら更新するか（condition）」「どこを書き換えるか（target）」をマニフェストに書く。
 - パッケージマネージャーの依存に限らず、Helm chart の値、Kubernetes マニフェストのイメージタグ、別リポジトリのファイルなど、任意の値を更新できる。複数のリポジトリにまたがる更新の手順も書ける。
 - 依存ファイルを自動で見つける機能（autodiscovery）もあるが、基本はマニフェストを自分で書く。A や B より手間がかかる。
@@ -99,6 +90,8 @@ Community Cloud で使えないのは、この目安をもとに自動マージ�
 - k3s[^k3s] や Jenkins の基盤[^jenkins-infra]のように、自分たちのソフトウェアや基盤に含まれる版を追従させる用途で使われている。
 
 ### D. Depfu
+
+![Depfu の構成図](images/dependency-update-bot-d.drawio.svg)
 
 - Ruby（Bundler）、JavaScript（npm / Yarn / pnpm）、PHP（Composer）、Elixir（Hex）に絞った有料の SaaS である。GitHub と GitLab に対応する。
 - 対応するエコシステムが少ない代わりに、PR が増えすぎない運用を既定にしている。開いておく更新 PR の数を絞り、"reasonably up to date" という方針で新しい版を少なくとも 7 日寝かせてから PR を作る（セキュリティリリースは待たない）[^depfu-rutd]。
