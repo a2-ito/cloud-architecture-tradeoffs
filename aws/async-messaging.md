@@ -31,6 +31,10 @@ Google Cloud と Cloudflare の対応する構成は、別ファイルで扱う�
 
 ## 2. 構成
 
+![非同期処理とイベント配信の 5 構成](images/async-messaging.drawio.svg)
+
+<!-- 図は draw.io で images/async-messaging.drawio.svg を開けば編集できる -->
+
 ### A. SQS 単体
 
 ```
