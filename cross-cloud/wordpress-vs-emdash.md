@@ -27,12 +27,11 @@ WordPress を EC2 で動かしていると、次のような負担が積み上�
 
 ## 2. 構成
 
+<!-- 図は draw.io で images/wordpress-vs-emdash-*.drawio.svg を開けば編集できる -->
+
 ### A. WordPress on EC2
 
-```
-Client ─▶ (CloudFront) ─▶ EC2（Apache/Nginx + PHP + WordPress）─▶ MySQL（同居 or RDS）
-                                   └─ wp-content/uploads（EBS or S3 + プラグイン）
-```
+![WordPress on EC2 の構成図](images/wordpress-vs-emdash-a.drawio.svg)
 
 - 最小構成は、EC2 1 台に Web サーバー、PHP、MySQL をすべて載せる形である。
 - 冗長化する場合は、EC2 を Auto Scaling グループにし、DB を RDS、アップロードファイルを EFS か S3 に分け、前段に ALB と CloudFront を置く。
@@ -41,10 +40,7 @@ Client ─▶ (CloudFront) ─▶ EC2（Apache/Nginx + PHP + WordPress）─▶ 
 
 ### B. WordPress on Lightsail
 
-```
-Client ─▶ (Lightsail CDN) ─▶ Lightsail インスタンス（WordPress ブループリント）─▶ MySQL（同居 or Lightsail マネージド DB）
-                                         └─ wp-content/uploads（ディスク or Lightsail バケット）
-```
+![WordPress on Lightsail の構成図](images/wordpress-vs-emdash-b.drawio.svg)
 
 - Lightsail は、VM、ディスク、固定 IP、転送量をまとめて月額固定で売る AWS のサービスである。WordPress が入った状態のインスタンスを、ブループリント（テンプレート）から数クリックで作れる。
 - 中身は普通の VM なので、WordPress のエコシステムは A と同じように使える。
@@ -62,11 +58,7 @@ Bitnami 版で動かしている既存のインスタンスはそのまま動き
 
 ### C. EmDash on Cloudflare Workers
 
-```
-Client ─▶ Cloudflare Workers（Astro + EmDash）─▶ D1（DB）
-                    │                        └─▶ R2（メディア）
-                    └─▶ Dynamic Workers（プラグインごとの isolate）
-```
+![EmDash on Cloudflare Workers の構成図](images/wordpress-vs-emdash-c.drawio.svg)
 
 - EmDash は Cloudflare のランタイム（workerd）の V8 isolate で動く。isolate はリクエストに応じて起動し、アクセスがなければゼロまで縮む。
 - DB は D1、メディアは R2 に置く。
@@ -77,11 +69,7 @@ Client ─▶ Cloudflare Workers（Astro + EmDash）─▶ D1（DB）
 
 ### D. EmDash を Node.js でセルフホスト
 
-```
-Client ─▶ Node.js 22.16+（Astro + EmDash）─▶ SQLite / libSQL / Postgres
-                    │                     └─▶ ローカルディスク or S3 互換ストレージ
-                    └─▶ workerd（子プロセス、プラグインのサンドボックス）
-```
+![EmDash を Node.js でセルフホストする場合の構成図](images/wordpress-vs-emdash-d.drawio.svg)
 
 - EmDash は Cloudflare 以外でのセルフホストも正式にサポートしている。EC2、Lightsail、VPS、Docker（`node:22` イメージ）などで動く[^review]。
 - DB は SQLite、libSQL、Postgres から、メディアの置き場所はローカルディスクか S3 互換ストレージ（AWS S3、R2、MinIO など）から選べる。
