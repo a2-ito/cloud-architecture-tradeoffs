@@ -4,3 +4,4 @@
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | [GitHub Actions のジョブをどこで動かすか](github-actions-runner.md) | GitHub-hosted runner、CodeBuild、Cloud Run、EC2、ARC、外部サービスの比較と、実行分数ごとの損益分岐点                                         |
 | [GitHub の PR をどう自動マージするか](github-pr-auto-merge.md)      | ネイティブの auto-merge、merge queue、Actions での直接マージ、Renovate、外部アプリの比較と、パブリック／プライベートとプランごとに使える構成 |
+| [CMS のサイトをどこでどう動かすか](wordpress-vs-emdash.md)          | WordPress on EC2 / Lightsail、EmDash（Cloudflare Workers / Node.js）、マネージド WordPress、ヘッドレス CMS の比較                            |
