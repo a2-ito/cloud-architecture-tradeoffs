@@ -22,11 +22,11 @@ Cloudflare Workers は Node.js ではなく V8 の isolate で動くため、Nex
 
 ## 2. 構成
 
+<!-- 図は draw.io で images/nextjs-on-workers-*.drawio.svg を開けば編集できる -->
+
 ### A. vinext
 
-```
-app/ のコード ─(vinext: Vite の上で Next.js の API を再実装)─▶ Worker
-```
+![vinext の構成図](images/nextjs-on-workers-a.drawio.svg)
 
 - [cloudflare/vinext](https://github.com/cloudflare/vinext)。Next.js の API（`app/`、`pages/`、`next.config.*`）を、Vite のプラグインとして作り直したものである。Cloudflare が開発している。
 - Cloudflare のドキュメントは、Next.js を Workers で動かす既定の方法として vinext を推奨している[^vinext]。
@@ -38,9 +38,7 @@ app/ のコード ─(vinext: Vite の上で Next.js の API を再実装)─▶
 
 ### B. OpenNext
 
-```
-app/ のコード ─(next build)─▶ ビルド出力 ─(@opennextjs/cloudflare で変換)─▶ Worker
-```
+![OpenNext の構成図](images/nextjs-on-workers-b.drawio.svg)
 
 - [opennextjs/opennextjs-cloudflare](https://github.com/opennextjs/opennextjs-cloudflare)。本物の `next build` の出力を、Workers で動く形に変換するアダプターである。
 - 本物の Next.js でビルドするので、互換性は vinext より高い。
@@ -51,9 +49,7 @@ app/ のコード ─(next build)─▶ ビルド出力 ─(@opennextjs/cloudfla
 
 ### C. Cloudflare Containers で `next start`
 
-```
-リクエスト ─▶ Worker（転送するだけ）─▶ Durable Object ─▶ コンテナ（next start）
-```
+![Cloudflare Containers で next start を動かす場合の構成図](images/nextjs-on-workers-c.drawio.svg)
 
 - Next.js を `output: 'standalone'` でビルドし、Node.js のコンテナとして Cloudflare Containers で動かす。中身はふつうの Node.js の Next.js なので、`next start` で動かすのと同じ挙動になる。
 - コンテナは利用者から直接は見えず、前に置いた Worker が Durable Object 経由でリクエストを転送する[^containers]。
