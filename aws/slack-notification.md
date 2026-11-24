@@ -19,7 +19,9 @@ CloudWatch アラームのような AWS サービスの通知だけなら A の�
 
 - 送り手は Lambda、ECS のタスク、EC2 などで動くアプリケーションで、VPC の中にあることもある。
 - 通知は AWS から Slack への一方向とする。Slack のボタンやスラッシュコマンドから AWS 側を操作する双方向の仕組みは主題にしないが、構成の違いとして触れる。
+- Slack app を作らずに URL へ POST できる、Slack のワークフロービルダーの Webhook トリガーは扱わない。
 - 通知の量は、一つのチャンネルにつき平均で毎秒 1 件を超えない程度とする。Slack は、どの方法で投稿しても、一つのチャンネルにつき毎秒 1 件程度を上限にしている（短いバーストは許される）[^slack-rate]。
+- AWS Organizations で利用できるリージョンを SCP で制限している場合、A の Q Developer は全リージョンへのアクセスを前提にしているので、例外を入れる必要がある[^getting-started]。
 - どの構成でも、Slack ワークスペースへの Slack app のインストールが要る。A では Q Developer の Slack app、B と C では自分で作った Slack app である。ワークスペースの設定によっては、インストールに Slack の管理者の承認が要る。
 
 ## 2. 構成
@@ -34,7 +36,7 @@ CloudWatch アラームのような AWS サービスの通知だけなら A の�
 - 通知先のチャンネルごとに、Q Developer の「チャンネル設定」を作り、SNS トピックを紐づける。プライベートチャンネルに送る場合は、チャンネルで `/invite @Amazon Q` を実行して招待しておく。
 - チャンネル設定には IAM ロール（チャンネルロール）とガードレールポリシーを付ける。通知を受けるだけなら、テンプレートの「Notification permissions」で足りる。
 - SNS トピックはスタンダードにする。FIFO トピックは HTTPS のエンドポイントに配信できないので使えない[^getting-started]。トピックを KMS で暗号化する場合は、AWS マネージドキーではなくカスタマーマネージドキーを使い、送り手のサービスにキーの利用を許可する[^getting-started]。
-- アプリケーションに要る権限は、トピックへの `sns:Publish` だけである。**Slack の認証情報をアプリケーションも AWS アカウントも持たない。**
+- アプリケーションに要る権限は、トピックへの `sns:Publish` だけである（トピックをカスタマーマネージドキーで暗号化する場合は、キーの `kms:GenerateDataKey` と `kms:Decrypt` も要る）。**Slack の認証情報をアプリケーションも AWS アカウントも持たない。**
 - アプリケーションは、決められた形式（カスタム通知）の JSON を文字列にして SNS に Publish する[^custom]。
 
 ```json
@@ -55,10 +57,11 @@ CloudWatch アラームのような AWS サービスの通知だけなら A の�
 }
 ```
 
-- `version`、`source`、`content.description` が必須である。形式が合わないメッセージは Slack に届かず、Q Developer の CloudWatch Logs に「Event Received is not supported」と記録される[^troubleshoot]。
+- `version`、`source`、`content.description` が必須である。形式が合わないメッセージは Slack に届かない。チャンネル設定で CloudWatch Logs へのログ出力を有効にしておけば、「Event Received is not supported」と記録される[^troubleshoot]。ログ出力は既定では無効で、有効にすると CloudWatch Logs の料金がかかる。
 - 本文は Slack の mrkdwn で書け、絵文字とユーザー ID によるメンション（`<@U...>`）が使える。`title` は 250 文字、`description` は 8,000 文字までである[^custom]。
 - `metadata.threadId` が同じ通知は、一つのスレッドにまとめられる。チャンネルの設定（`@Amazon Q preferences`）でスレッドへの通知を許可しておく必要があり、まとめるかどうかは設定した時間の幅で決まる[^custom]。
 - 表示の形は Q Developer が決める。Block Kit（Slack のレイアウト部品）で自由に組むことはできず、投稿者は「Amazon Q」に固定され、末尾に「Custom notification delivered by Amazon Q Developer in chat applications」というフッターが付く[^custom]。投稿したメッセージをあとから書き換えたり消したりする API もない。
+- ボタンは、Q Developer が付けるカスタムアクション（AWS CLI のコマンドを実行するボタン）だけが使える。`metadata.enableCustomActions` を `false` にすると付かない[^custom]。
 - 同じトピックとチャンネルで、CloudWatch アラーム、EventBridge のイベント、Security Hub の検出結果など、Q Developer が対応している AWS サービスの通知も受けられる。EventBridge の input transformer で、AWS サービスのイベントをカスタム通知の形式に変えて送ることもできる[^custom]。
 - 一つのチャンネル設定に、複数のリージョンの SNS トピックを紐づけられる[^subscribe]。ほかのアカウントの通知は、EventBridge で Q Developer のあるアカウントに集めれば、Q Developer を各アカウントに設定しなくて済む[^eventbridge]。
 
@@ -70,11 +73,12 @@ CloudWatch アラームのような AWS サービスの通知だけなら A の�
 - アプリケーションは、その URL に JSON を HTTPS で POST する。Block Kit が使えるので、表示の自由度は A より高い。
 - **URL そのものが認証情報である。** URL を知っていれば誰でもそのチャンネルに投稿できるので、Secrets Manager か SSM Parameter Store の SecureString に置き、アプリケーションは実行時に読み出す。漏れた場合は、Slack app の設定画面で Webhook を無効にして作り直す。
 - 投稿先のチャンネル、投稿者名、アイコンは Slack app の設定で決まり、メッセージ側で上書きできない[^slack-webhook]。チャンネルを増やすたびに Webhook を一つ増やす。
-- 応答は `ok` という文字列だけで、投稿したメッセージの識別子（`ts`）が返らない。そのため、投稿したメッセージをあとから書き換えたり、それを親にしてスレッドに返信したりはできない。
+- 応答は `ok` という文字列だけで、投稿したメッセージの識別子（`ts`）が返らない。そのため、投稿したメッセージをあとから書き換えたり、それを親にしてスレッドに返信したりはできない。親メッセージの `ts` を別の手段で知っていれば、`thread_ts` を付けてそのスレッドに返信することはできる[^slack-webhook]。
 - アプリケーションが VPC の中にある場合は、`hooks.slack.com` に出るための NAT ゲートウェイなどのインターネットへの出口が要る。
 
 アプリケーションから直接 POST する代わりに、SNS（または SQS）の後ろに Webhook を呼ぶ Lambda を置く形もある。
 アプリケーションは A と同じく `sns:Publish` だけを持てばよくなり、Webhook URL を読む権限と、Slack の応答の失敗や 429 の再試行を、その Lambda に寄せられる。
+その Lambda を VPC に接続しなければ、送り手の VPC に NAT ゲートウェイは要らない（SNS のインターフェイス VPC エンドポイントがあればよい）。
 
 #### コードを書かずに送る: EventBridge API destinations
 
@@ -85,9 +89,10 @@ EventBridge の API destinations を使うと、EventBridge のイベントを�
 ```
 
 - input transformer で、イベントを Slack が受け取る JSON（`text` や `blocks`）に組み替える。
-- API destination の「接続（connection）」は、認証の方式（API キー、Basic、OAuth）の指定が必須である。Webhook は URL だけで認証するので、使わないヘッダーを API キーとして入れておくことになる。接続の認証情報は EventBridge が Secrets Manager に保存し、その費用は API destinations の料金に含まれる。
-- 呼び出しの上限を毎秒 1〜300 件で指定でき、超えた分は EventBridge が待たせて送る。送れなかったイベントは最大 24 時間再試行し、それでも失敗したものは、ターゲットに設定したデッドレターキュー（SQS）に残せる[^api-dest]。
-- Webhook URL は API destination のエンドポイントとして EventBridge の設定に入るので、URL を Terraform の state などに置かないように扱いに注意する。
+- API destination の「接続（connection）」は、認証の方式（API キー、Basic、OAuth）の指定が必須である。Webhook は URL だけで認証するので、使わないヘッダーを API キーとして入れておくことになる。Slack が知らないヘッダーを無視することを当てにした回避策である。接続の認証情報は EventBridge が Secrets Manager に保存し、その費用は API destinations の料金に含まれる。
+- API destination ごとに呼び出しの上限（既定のクォータは毎秒 300 件）を指定でき[^eb-quota]、超えた分は EventBridge が待たせて送る。送れなかったイベントは最大 24 時間再試行し、それでも失敗したものは、ターゲットに設定したデッドレターキュー（SQS）に残せる[^api-dest]。
+- Webhook URL は、Secrets Manager ではなく API destination の普通の設定項目（エンドポイント）として保存される。`events:DescribeApiDestination` の権限があれば読め、Terraform で管理すれば state にも入るので、その権限と state を守る必要がある。
+- 送り手は EventBridge にイベントを送るだけなので、VPC の中からでも EventBridge のインターフェイス VPC エンドポイントがあれば NAT ゲートウェイは要らない。
 - 呼び出し 100 万件あたり 0.20 USD かかる[^price]。
 
 ### C. Slack app の Bot トークン + `chat.postMessage`
@@ -96,37 +101,43 @@ EventBridge の API destinations を使うと、EventBridge のイベントを�
 
 - 自分で Slack app を作り、Bot に `chat:write` スコープを付けてインストールすると、Bot トークン（`xoxb-...`）が発行される。Bot をチャンネルに招待するか、`chat:write.public` スコープを付ければ公開チャンネルに招待なしで送れる。
 - アプリケーションは、トークンを `Authorization: Bearer` ヘッダーに付けて `chat.postMessage` を呼ぶ。投稿先のチャンネルはリクエストごとに指定できるので、トークン一つで複数のチャンネルに送れる。
-- 応答に投稿したメッセージの `ts` が返る。これを使って、`thread_ts` でスレッドに返信したり、`chat.update` で「処理中」を「完了」に書き換えたり、`chat.delete` で消したりできる。ファイルのアップロードもできる。
-- トークンも B の URL と同じく Secrets Manager に置く。トークンのローテーションを有効にすると、トークンは 12 時間で期限が切れ、リフレッシュトークンでの更新が要る。有効にしない場合は、漏れたときに Slack app の設定画面でトークンを取り消して再インストールする。
-- 公式の SDK（Python の `slack_sdk`、Node.js の `@slack/web-api`）は、429 と `Retry-After` ヘッダーによる再試行を扱える。
-- のちに Slack のボタンやスラッシュコマンドで AWS 側の処理を動かしたくなったら、同じ Slack app に機能を足せる。ただし、Slack からのリクエストを受ける公開 HTTPS エンドポイント（API Gateway や Lambda 関数 URL など）が別に要る。
+- 応答に投稿したメッセージの `ts` が返る。これを使って、`thread_ts` でスレッドに返信したり、`chat.update` で「処理中」を「完了」に書き換えたり、`chat.delete` で消したりできる。`files:write` スコープを足せば、ファイルのアップロードもできる。
+- トークンも B の URL と同じく Secrets Manager に置く。トークンのローテーションを有効にすると、トークンは 12 時間で期限が切れ、リフレッシュトークンとクライアントシークレットでの更新が要る。更新役（定期実行する Lambda など）を作ることになり、一度有効にすると無効に戻せない。有効にしない場合は、漏れたときに Slack app の設定画面でトークンを取り消して再インストールする。
+- 公式の SDK は、429 と `Retry-After` ヘッダーによる再試行を扱える。Node.js の `@slack/web-api` は既定で再試行し、Python の `slack_sdk` は `RateLimitErrorRetryHandler` を足すと再試行する。
+- のちに Slack のボタンやスラッシュコマンドで自分のアプリケーションの処理を動かしたくなったら、同じ Slack app に機能を足せる。ただし、Slack からのリクエストを受ける公開 HTTPS エンドポイント（API Gateway や Lambda 関数 URL など）が別に要る。
 - VPC の中から送る場合に、インターネットへの出口が要るのは B と同じである。
 
-B と同じく、SNS や SQS の後ろに投稿用の Lambda を置けば、トークンを読む権限をその Lambda だけに持たせられる。
+B と同じく、SNS や SQS の後ろに VPC に接続しない投稿用の Lambda を置けば、トークンを読む権限をその Lambda だけに持たせられ、送り手の VPC に NAT ゲートウェイも要らなくなる。
 
 ## 3. トレードオフ
 
-| 観点                                 | A. SNS + Q Developer                                                   | B. Incoming Webhook                                      | C. Bot トークン + `chat.postMessage`            |
-| ------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------- |
-| Slack 側の準備                       | Q Developer の Slack app をインストールし、チャンネルに招待            | 自作の Slack app を作り、チャンネルごとに Webhook を発行 | 自作の Slack app を作り、Bot をチャンネルに招待 |
-| アプリケーションが持つ認証情報       | なし（IAM の `sns:Publish` だけ）                                      | Webhook URL                                              | Bot トークン                                    |
-| 送り先                               | SNS（AWS の API）                                                      | `hooks.slack.com`                                        | `slack.com/api`                                 |
-| VPC の中から送るときの出口           | SNS のインターフェイス VPC エンドポイントがあれば NAT は不要           | NAT ゲートウェイなどが要る                               | NAT ゲートウェイなどが要る                      |
-| 一つの送り口で送れるチャンネル       | トピックに紐づけたチャンネル（設定で増やせる）                         | Webhook ごとに 1 チャンネル                              | Bot が送れるチャンネルならどこでも              |
-| 表示の自由度                         | タイトル、本文、次の手順、キーワードの決まった形。Block Kit は使えない | Block Kit が使える                                       | Block Kit が使える                              |
-| 投稿者名とアイコン                   | 「Amazon Q」に固定。フッターも固定                                     | Slack app の設定で決まる                                 | Slack app の設定で決まる                        |
-| スレッド                             | `threadId` で Q Developer がまとめる（時間の幅による）                 | できない（`ts` が返らない）                              | `thread_ts` で自由に返信できる                  |
-| 投稿後の書き換え、削除               | できない                                                               | できない                                                 | `chat.update`、`chat.delete` でできる           |
-| AWS サービスの通知との同居           | 同じトピックとチャンネルで受けられる                                   | 別の仕組み（EventBridge API destinations など）が要る    | 別の仕組みが要る                                |
-| 送信の失敗がアプリケーションに返るか | 返らない（Publish が成功した時点で終わる）                             | 返る（HTTP のステータス）                                | 返る（HTTP のステータスと `ok: false`）         |
-| 料金                                 | Q Developer は追加料金なし。SNS の料金だけ                             | Secrets Manager の料金（と NAT）                         | Secrets Manager の料金（と NAT）                |
-| Slack 以外への載せ替え               | Microsoft Teams なら同じ仕組みで送れる                                 | Slack 専用                                               | Slack 専用                                      |
+| 観点                                 | A. SNS + Q Developer                                                                                                | B. Incoming Webhook                                                                                             | C. Bot トークン + `chat.postMessage`                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Slack 側の準備                       | Q Developer の Slack app をインストールし、チャンネルに招待                                                         | 自作の Slack app を作り、チャンネルごとに Webhook を発行                                                        | 自作の Slack app を作り、Bot をチャンネルに招待                                             |
+| アプリケーションが持つ認証情報       | なし（IAM の `sns:Publish` だけ）                                                                                   | Webhook URL                                                                                                     | Bot トークン                                                                                |
+| 送り先                               | SNS（AWS の API）                                                                                                   | `hooks.slack.com`                                                                                               | `slack.com/api`                                                                             |
+| VPC の中から送るときの出口           | SNS のインターフェイス VPC エンドポイントがあれば NAT は不要                                                        | 直接送るなら NAT ゲートウェイなどが要る。SNS + VPC 外の Lambda か API destinations を挟めば不要（部品が増える） | 直接送るなら NAT ゲートウェイなどが要る。SNS + VPC 外の Lambda を挟めば不要（部品が増える） |
+| 一つの送り口で送れるチャンネル       | トピックに紐づけたチャンネル（設定で増やせる）                                                                      | Webhook ごとに 1 チャンネル                                                                                     | Bot が送れるチャンネルならどこでも                                                          |
+| 表示の自由度                         | タイトル、本文、次の手順、キーワードの決まった形。Block Kit は使えず、ボタンは Q Developer のカスタムアクションだけ | Block Kit が使える                                                                                              | Block Kit が使える                                                                          |
+| 投稿者名とアイコン                   | 「Amazon Q」に固定。フッターも固定                                                                                  | Slack app の設定で決まる                                                                                        | Slack app の設定で決まる                                                                    |
+| スレッド                             | `threadId` で Q Developer がまとめる（時間の幅による）                                                              | 自分の投稿を親にはできない（`ts` が返らない）                                                                   | `thread_ts` で自由に返信できる                                                              |
+| 投稿後の書き換え、削除               | できない                                                                                                            | できない                                                                                                        | `chat.update`、`chat.delete` でできる                                                       |
+| AWS サービスの通知との同居           | 同じトピックとチャンネルで受けられる                                                                                | 別の仕組み（EventBridge API destinations など）が要る                                                           | 別の仕組みが要る                                                                            |
+| 送信の失敗がアプリケーションに返るか | 返らない（Publish が成功した時点で終わる）                                                                          | 返る（HTTP のステータス）                                                                                       | 返る（HTTP のステータスと `ok: false`）                                                     |
+| 料金                                 | Q Developer は追加料金なし。SNS の料金（と、ログ出力を有効にすれば CloudWatch Logs の料金）だけ                     | Secrets Manager の料金（と NAT）                                                                                | Secrets Manager の料金（と NAT）                                                            |
+| Slack 以外への載せ替え               | Microsoft Teams のチャンネル設定を足せば、同じトピックと通知の形式で送れる（メンションは除く）                      | Slack 専用                                                                                                      | Slack 専用                                                                                  |
 
 ### 認証情報の置き場所
 
 A の最大の利点は、Slack の認証情報をどこにも持たないことである。
 Slack との認可は Q Developer と Slack のあいだで済んでおり、AWS 側で管理するのは IAM の権限だけになる。
 漏えいや取り消しを気にする対象が増えず、誰が送れるかを IAM ポリシーとトピックのアクセスポリシーで説明できる。
+
+その代わり、ワークスペースを認可したアカウントでは、IAM の権限が Slack への投稿権限そのものになる。
+`chatbot:CreateSlackChannelConfiguration` などを持つ主体は、そのワークスペースの任意のチャンネルへの配信設定を作れる。
+また、チャンネルロールやガードレールポリシーを広くしすぎると、チャンネルのメンバーが Slack から AWS を操作できてしまう。
+`chatbot:*` の権限は設定を管理する主体だけに絞り、通知だけのチャンネルではガードレールを通知に要る最小限にする。
+B と C にはない管理対象である。
 
 B と C は、Webhook URL や Bot トークンを Secrets Manager に置き、読める主体を絞り、漏れたときの作り直しの手順を持っておく必要がある。
 B の URL は投稿しかできないが、C の Bot トークンはスコープ次第でチャンネルの履歴を読むなどもできるので、漏れたときの影響は C のほうが大きい。
@@ -137,7 +148,7 @@ B の URL は投稿しかできないが、C の Bot トークンはスコープ
 業務上の通知で困るのは、A の表示の固定である。
 次のようなことは A ではできず、C を選ぶ理由になる。
 
-- Block Kit でボタンや表、画像を組む。
+- Block Kit で、自分のアプリケーションの処理を呼ぶボタンや、表、画像を自由に組む。
 - 一つの処理の進み具合を、一つのメッセージを書き換えて見せる。
 - 処理ごとに必ずスレッドを分け、あとから決まった親メッセージに返信する。A の `threadId` は、設定した時間の幅のなかでまとめる仕組みなので、時間をおいた続報が同じスレッドに入るとは限らない。
 - 送り手の名前やアイコンをシステムごとに変える。
@@ -149,7 +160,7 @@ B は Block Kit が使えるが、投稿後に手を出せないので、表現�
 
 A は非同期である。
 アプリケーションから見えるのは SNS への Publish の成功までで、その先で Slack に届かなかったことは分からない。
-届かなかったことは、Q Developer の CloudWatch メトリクス（`MessageDeliveryFailure`、`UnsupportedEvents`、`EventsThrottled`）と CloudWatch Logs で見る[^metrics]。
+届かなかったことは、Q Developer の CloudWatch メトリクス（`MessageDeliveryFailure`、`UnsupportedEvents`、`EventsThrottled`）と、ログ出力を有効にしたチャンネル設定の CloudWatch Logs で見る[^metrics]。
 これらのメトリクスはバージニア北部リージョン（`us-east-1`）に出るので、アラームもそこに作る。
 特に、カスタム通知の形式の誤りは、送り手には何も返らないまま捨てられる。
 JSON を組み立てるコードを変えたら、実際のチャンネルに届くかを確かめる。
@@ -166,21 +177,21 @@ Slack の応答（2xx、4xx、429）がそのままアプリケーションに�
 
 - A は、Q Developer の通知に追加料金がない[^custom]。SNS は Publish 100 万件あたり 0.50 USD（最初の 100 万件 / 月は無料）で、ほかに配信の料金がかかる。
 - B と C は、Secrets Manager にシークレット一つあたり月 0.40 USD と、API 呼び出し 1 万件あたり 0.05 USD がかかる。呼び出しのたびにシークレットを読まず、実行環境の中でキャッシュする。
-- 差が出るのは、VPC の中から送る場合の出口である。A は SNS のインターフェイス VPC エンドポイント（東京で 1 AZ あたり月約 10 USD）で済み、すでに VPC エンドポイントがあれば追加はない。B と C は、NAT ゲートウェイがない VPC から送るためにわざわざ置くと、3 AZ で月約 136 USD の固定費になる。NAT ゲートウェイの費用の内訳は [Lambda を内部 API として呼び出すときの入口](lambda-internal-api.md#コスト) を参照。
+- 差が出るのは、VPC の中から送る場合の出口である。A は SNS のインターフェイス VPC エンドポイント（東京で 1 AZ あたり月約 10 USD）で済み、すでに VPC エンドポイントがあれば追加はない。B と C は、アプリケーションから直接送る場合、NAT ゲートウェイがない VPC から送るためにわざわざ置くと、3 AZ で月約 136 USD の固定費になる。SNS の後ろに VPC に接続しない Lambda を置くか、B なら EventBridge API destinations を使えば、NAT ゲートウェイは要らないが、部品が増える。NAT ゲートウェイの費用の内訳は [Lambda を内部 API として呼び出すときの入口](lambda-internal-api.md#コスト) を参照。
 
 ### 運用負荷
 
 - A の Slack ワークスペースの認可はコンソールでの手作業だが、一度だけである。チャンネル設定、IAM ロール、SNS トピックとの紐づけは、Terraform（`aws_chatbot_slack_channel_configuration`）や CloudFormation（`AWS::Chatbot::SlackChannelConfiguration`）で管理できる。認可したワークスペースの ID とチャンネルの ID をコードに書く。
-- A では、Slack のチャンネル名を変えても ID は変わらないので設定は壊れない。プライベートチャンネルに変えた場合や、Q Developer をチャンネルから外した場合は届かなくなる。
+- A では、Slack のチャンネル名を変えても ID は変わらないので設定は壊れない。チャンネルをアーカイブ・削除した場合や、プライベートチャンネルから Q Developer を外した場合は届かなくなる。
 - B と C は、Slack app の設定（スコープ、Webhook、インストール先）を Slack の管理画面で持つ。Slack app の設定はマニフェスト（YAML / JSON）で書けるが、AWS のリソースと同じ IaC で管理するには工夫が要る。
-- B はチャンネルを増やすたびに Webhook とシークレットが増える。C はトークン一つで済むが、Bot を新しいチャンネルに招待し忘れると `not_in_channel` で失敗する。
+- B はチャンネルを増やすたびに Webhook とシークレットが増える。C はトークン一つで済むが、Bot を新しいチャンネルに招待し忘れると `not_in_channel` で失敗する。公開チャンネルなら `chat:write.public` スコープで避けられる。
 - C で Slack app の機能を増やすと、スコープの追加のたびに再インストール（と、場合によっては管理者の承認）が要る。
 
 ### ロックイン
 
 A は Q Developer のカスタム通知の形式に依存する。
 ただし形式は小さく、通知を組み立てる関数を差し替えれば B や C に移れる。
-同じ設定で Microsoft Teams にも送れるので、チャットツールを替える可能性がある組織では A のほうが移りやすい。
+Microsoft Teams のチャンネル設定を足せば、同じトピックと通知の形式のまま送れる（Teams ではメンションが使えない）ので、チャットツールを替える可能性がある組織では A のほうが移りやすい。
 
 B と C は Slack の API に依存するが、AWS には依存しない。
 AWS の外（ほかのクラウドや CI）からも同じ Slack app で送れる。
@@ -192,7 +203,7 @@ A（SNS + Q Developer）が向くのは次のような場合である。
 - 運用のアラートや、バッチの成否のような、決まった形で足りる通知である。
 - CloudWatch アラームや EventBridge など、AWS サービスの通知と同じチャンネルにまとめたい。
 - Slack の認証情報を AWS 側に置きたくない。誰が送れるかを IAM で説明したい。
-- 送り手が VPC の中にあり、NAT ゲートウェイを置きたくない。
+- 送り手が VPC の中にあり、NAT ゲートウェイも中継の Lambda も置かずに済ませたい。
 - 複数のアカウントやリージョンの通知を、一か所の設定で受けたい。
 
 B（Incoming Webhook）が向くのは次のような場合である。
@@ -207,12 +218,13 @@ C（Bot トークン + `chat.postMessage`）が向くのは次のような場合
 - 利用者や業務部門が読む通知で、見た目や投稿者名を作り込みたい。
 - 一つの処理の進み具合をメッセージの書き換えやスレッドで見せたい。
 - 送り先のチャンネルを、通知の内容に応じて動的に変えたい。
-- のちに Slack のボタンやスラッシュコマンドで AWS 側を操作する双方向の仕組みに広げる予定がある。
+- のちに Slack のボタンやスラッシュコマンドで自分のアプリケーションの処理を動かす双方向の仕組みに広げる予定がある。AWS CLI のコマンドを実行する程度なら、A のカスタムアクションやチャンネルからのコマンド実行でも足りる。
 
 迷った場合は、運用の通知を A に寄せ、業務の通知だけを C で作る組み合わせが扱いやすい。
-A を入れておけば、AWS サービスの通知とアプリケーションの通知の入口が SNS にそろい、あとから一部を C に切り出すときも、SNS の後ろに投稿用の Lambda を足すだけで済む。
+A を入れておけば、AWS サービスの通知とアプリケーションの通知の入口が SNS にそろい、あとから一部を C に切り出すときも、アプリケーションの送り先は SNS のままにできる。
+その場合は、C 向けの通知を別のトピックに分けるか、サブスクリプションのフィルターポリシーで振り分ける。同じトピックに投稿用の Lambda を足すだけだと、Q Developer にも同じメッセージが届いて二重に投稿される。また、Lambda でカスタム通知の JSON を Slack 向けの形に組み替える処理が要る。
 
-[^rename]: [AWS Chatbot is now named Amazon Q Developer](https://aws.amazon.com/blogs/devops/aws-chatbot-is-now-named-amazon-q-developer/) を参照。本ファイルの記述は 2026 年 11 月時点の情報である。
+[^rename]: [AWS Chatbot is now named Amazon Q Developer](https://aws.amazon.com/blogs/devops/aws-chatbot-is-now-named-amazon-q-developer/) を参照。2026 年 11 月に Amazon Q Developer in console（マネジメントコンソールの中のアシスタント）は AWS assistant に改名されたが、chat applications の名前は本ファイルの執筆時点で変わっていない。本ファイルの記述は 2026 年 11 月時点の情報である。
 
 [^slack-rate]: Slack の [Rate limits](https://docs.slack.dev/apis/web-api/rate-limits) を参照。`chat.postMessage` と Incoming Webhook のどちらにも適用される。
 
@@ -229,6 +241,8 @@ A を入れておけば、AWS サービスの通知とアプリケーション�
 [^metrics]: [Monitoring Amazon Q Developer in chat applications with Amazon CloudWatch](https://docs.aws.amazon.com/chatbot/latest/adminguide/monitoring-cloudwatch.html) と [Accessing Amazon CloudWatch Logs for Amazon Q Developer in chat applications](https://docs.aws.amazon.com/chatbot/latest/adminguide/cloudwatch-logs.html) を参照。
 
 [^slack-webhook]: Slack の [Sending messages using incoming webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/) を参照。
+
+[^eb-quota]: [Amazon EventBridge quotas](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-quota.html) の API destinations の項を参照。
 
 [^api-dest]: [Using API destinations with Amazon EventBridge](https://aws.amazon.com/blogs/compute/using-api-destinations-with-amazon-eventbridge/) を参照。
 
